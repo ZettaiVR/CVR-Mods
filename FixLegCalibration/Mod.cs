@@ -38,12 +38,14 @@ namespace Zettai
 				leg.target = target;
 				leg.positionWeight = 1f;
 				leg.rotationWeight = 1f;
-				var rotation = tracker.rotation * Quaternion.LookRotation(settings.footTrackerForward, settings.footTrackerUp);
 				var bendTarget = leg.bendGoal;
 				if (!bendTarget)
 					bendTarget = new GameObject(bendTargetName).transform;
-				bendTarget.parent = tracker;
-				bendTarget.position = lastBone.position + rotation * Vector3.forward + rotation * Vector3.up;
+				bendTarget.parent = target;
+				rootForward *= 0.2f;
+				rootForward.y += 1f;
+				rootForward *= leg.thigh.length;
+				bendTarget.position = lastBone.position + rootForward;
 				leg.bendGoal = bendTarget;
 				leg.bendGoalWeight = 1f;
 				return false;
