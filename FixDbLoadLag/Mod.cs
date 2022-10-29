@@ -1,7 +1,6 @@
 ﻿using ABI_RC.Core.Player;
 using HarmonyLib;
 using MelonLoader;
-using System.Reflection;
 using Zettai;
 
 [assembly: MelonInfo(typeof(FixDbLoadLag), "FixDbLoadLag", "1.0", "Zettai")]
@@ -12,8 +11,6 @@ namespace Zettai
     public class FixDbLoadLag : MelonMod
 	{
 		private static MelonPreferences_Entry<bool> enableDbLagPatch;
-        private static readonly MethodInfo __UpdateComponents = typeof(CVRDynamicBoneManager).GetMethod(nameof(CVRDynamicBoneManager.UpdateComponents), BindingFlags.NonPublic | BindingFlags.Static);
-        private static readonly System.Action UpdateComponentsDelegate = (System.Action)System.Delegate.CreateDelegate(typeof(System.Action), __UpdateComponents);
         public override void OnApplicationStart()
 		{
 			var category = MelonPreferences.CreateCategory("Zettai");
@@ -46,7 +43,7 @@ namespace Zettai
                 if (!enableDbLagPatch.Value)
                     return true;
                 UpdateDbComponentsPatch.letItRun = true;
-                UpdateComponentsDelegate();
+                CVRDynamicBoneManager.UpdateComponents();
                 UpdateDbComponentsPatch.letItRun = false;
                 return true;
             }
