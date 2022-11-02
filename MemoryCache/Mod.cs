@@ -25,7 +25,7 @@ namespace Zettai
     {
         private static MelonPreferences_Entry<bool> enableMod;
         private static MelonPreferences_Entry<bool> enableLog;
-        private static MelonPreferences_Entry<float> maxLifeTimeMinutesEntry;
+        private static MelonPreferences_Entry<byte> maxLifeTimeMinutesEntry;
         private static MelonPreferences_Entry<byte> maxRemoveCountEntry;
         private static MelonPreferences_Entry<byte> loadTimeoutSecondsEntry;
         private static float maxLifeTimeMinutes = 15f;
@@ -44,7 +44,7 @@ namespace Zettai
             var category = MelonPreferences.CreateCategory("Zettai");
             enableMod = category.CreateEntry("enableMemoryCacheMod", true, "Enable MemoryCache mod");
             enableLog = category.CreateEntry("enableAvatarInstantiateLog", false, "Enable logging");
-            maxLifeTimeMinutesEntry = category.CreateEntry("maxLifeTimeMinutesEntry", 15f, "Maximum lifetime of unused assets in cache (minutes)");
+            maxLifeTimeMinutesEntry = category.CreateEntry("maxLifeTimeMinutesEntry", (byte)15, "Maximum lifetime of unused assets in cache (minutes)");
             maxRemoveCountEntry = category.CreateEntry("maxRemoveCountEntry", (byte)5, "Maximum number of assets to remove from cache per minute");
             loadTimeoutSecondsEntry = category.CreateEntry("loadTimeoutSecondsEntry", (byte)30, "Maximum time in seconds for assets to wait for loading before giving up");
             maxLifeTimeMinutesEntry.OnValueChanged += MaxLifeTimeMinutesEntry_OnValueChanged;
@@ -55,7 +55,7 @@ namespace Zettai
         private void EnableMod_OnValueChanged(bool arg1, bool arg2) => EmptyCache();
         private void LoadTimeoutSecondsEntry_OnValueChanged(byte arg1, byte arg2) => loadTimeoutSeconds = loadTimeoutSecondsEntry.Value;
         private void MaxRemoveCountEntry_OnValueChanged(byte oldValue, byte newValue) => maxLifeTimeMinutes = maxLifeTimeMinutesEntry.Value;
-        private void MaxLifeTimeMinutesEntry_OnValueChanged(float oldValue, float newValue) => maxRemoveCount = maxRemoveCountEntry.Value;
+        private void MaxLifeTimeMinutesEntry_OnValueChanged(byte oldValue, byte newValue) => maxRemoveCount = maxRemoveCountEntry.Value;
         public override void OnSceneWasLoaded(int buildIndex, string sceneName) => UpdateBlockedAvatar();
         public override void OnApplicationLateStart()
         {
@@ -142,7 +142,7 @@ namespace Zettai
 
         private static IEnumerator InstantiateItem(CacheItem item, DownloadJob.ObjectType type, string id, string owner, UgcTagsData tags, bool wait = true)
         {
-            if (!wait)
+            if (wait)
             {
                 var sw = new System.Diagnostics.Stopwatch();
                 sw.Start();
@@ -166,7 +166,8 @@ namespace Zettai
                 if (!instance)
                 {
                     MelonLogger.Error($"Instantiating item {type} failed: ID: '{id}', owner: '{owner}'.");
-                    instantiateSemaphore.Release();
+                    if (wait) 
+                        instantiateSemaphore.Release();
                     yield break;
                 }
                 yield return null;
@@ -180,7 +181,8 @@ namespace Zettai
                 if (!instance)
                 {
                     MelonLogger.Error($"Instantiating item {type} failed: ID: '{id}', owner: '{owner}'.");
-                    instantiateSemaphore.Release();
+                    if (wait) 
+                        instantiateSemaphore.Release();
                     yield break;
                 }
                 yield return null;
@@ -188,9 +190,11 @@ namespace Zettai
                     parent.SetActive(true);
                 SetPropData(propData, parent, instance);
             }
-            if (!wait)
+            if (wait)
+            {
                 yield return null;
-            instantiateSemaphore.Release();
+                instantiateSemaphore.Release();
+            }
             yield break;
         }
 
