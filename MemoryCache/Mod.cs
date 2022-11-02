@@ -23,12 +23,14 @@ namespace Zettai
 {
     public class MemoryCache : MelonMod
     {
-        //private static MelonPreferences_Entry<bool> enableAvatarInstantiatePatch;
+        private static MelonPreferences_Entry<bool> enableMod;
         private static MelonPreferences_Entry<bool> enableLog;
         private static MelonPreferences_Entry<float> maxLifeTimeMinutesEntry;
         private static MelonPreferences_Entry<byte> maxRemoveCountEntry;
+        private static MelonPreferences_Entry<byte> loadTimeoutSecondsEntry;
         private static float maxLifeTimeMinutes = 15f;
         private static byte maxRemoveCount = 3;
+        private static byte loadTimeoutSeconds = 30;
         private static readonly System.Threading.SemaphoreSlim bundleLoadSemaphore = new System.Threading.SemaphoreSlim(1, 1);
         private static readonly System.Threading.SemaphoreSlim instantiateSemaphore = new System.Threading.SemaphoreSlim(1, 1);
         private static readonly Dictionary<string, CacheItem> cachedAssets = new Dictionary<string, CacheItem>();
@@ -40,29 +42,21 @@ namespace Zettai
         public override void OnApplicationStart()
         {
             var category = MelonPreferences.CreateCategory("Zettai");
-            //enableAvatarInstantiatePatch = category.CreateEntry("enableAvatarInstantiatePatch", true, "Enable AvatarInstantiate patch");
+            enableMod = category.CreateEntry("enableMemoryCacheMod", true, "Enable MemoryCache mod");
             enableLog = category.CreateEntry("enableAvatarInstantiateLog", false, "Enable logging");
-            maxLifeTimeMinutesEntry = category.CreateEntry("maxLifeTimeMinutesEntry", 15f, "Maximum lifetime of unused avatars in cache (minutes)");
-            maxRemoveCountEntry = category.CreateEntry("maxRemoveCountEntry", (byte)5, "Maximum number of avatars to remove from cache per minute");
+            maxLifeTimeMinutesEntry = category.CreateEntry("maxLifeTimeMinutesEntry", 15f, "Maximum lifetime of unused assets in cache (minutes)");
+            maxRemoveCountEntry = category.CreateEntry("maxRemoveCountEntry", (byte)5, "Maximum number of assets to remove from cache per minute");
+            loadTimeoutSecondsEntry = category.CreateEntry("loadTimeoutSecondsEntry", (byte)30, "Maximum time in seconds for assets to wait for loading before giving up");
             maxLifeTimeMinutesEntry.OnValueChanged += MaxLifeTimeMinutesEntry_OnValueChanged;
             maxRemoveCountEntry.OnValueChanged += MaxRemoveCountEntry_OnValueChanged;
+            loadTimeoutSecondsEntry.OnValueChanged += LoadTimeoutSecondsEntry_OnValueChanged;
+            enableMod.OnValueChanged += EnableMod_OnValueChanged;
         }
-
-        private void MaxRemoveCountEntry_OnValueChanged(byte oldValue, byte newValue)
-        {
-            maxLifeTimeMinutes = maxLifeTimeMinutesEntry.Value;
-        }
-
-        private void MaxLifeTimeMinutesEntry_OnValueChanged(float oldValue, float newValue)
-        {
-            maxRemoveCount = maxRemoveCountEntry.Value;
-        }
-
-        public override void OnSceneWasLoaded(int buildIndex, string sceneName)
-        {
-            UpdateBlockedAvatar();
-        }
-
+        private void EnableMod_OnValueChanged(bool arg1, bool arg2) => EmptyCache();
+        private void LoadTimeoutSecondsEntry_OnValueChanged(byte arg1, byte arg2) => loadTimeoutSeconds = loadTimeoutSecondsEntry.Value;
+        private void MaxRemoveCountEntry_OnValueChanged(byte oldValue, byte newValue) => maxLifeTimeMinutes = maxLifeTimeMinutesEntry.Value;
+        private void MaxLifeTimeMinutesEntry_OnValueChanged(float oldValue, float newValue) => maxRemoveCount = maxRemoveCountEntry.Value;
+        public override void OnSceneWasLoaded(int buildIndex, string sceneName) => UpdateBlockedAvatar();
         public override void OnApplicationLateStart()
         {
             UpdateBlockedAvatar();
@@ -97,7 +91,8 @@ namespace Zettai
                 return;
             LimitRemovedCount(maxRemoveCount);
             string removedNumber = maxRemoveCount == 0 ? "no limit on the number of assets" : $"maximum number of assets to remove was {maxRemoveCount}";
-            MelonLogger.Msg($"Clearing cache, removing {idsToRemove.Count} cached items. Maximum lifetime was {maxLifeTimeMinutes} minutes, {removedNumber}.");
+            if (enableLog.Value)
+                MelonLogger.Msg($"Clearing cache, removing {idsToRemove.Count} cached items. Maximum lifetime was {maxLifeTimeMinutes} minutes, {removedNumber}.");
             foreach (var item in idsToRemove)
             {
                 cachedAssets[item.Key].Destroy();
@@ -129,8 +124,8 @@ namespace Zettai
                 bool joinOnComplete, string hash, string fileID, string location, ABI_RC.Core.Networking.API.Responses.UgcTagsData tags,
                 ABI_RC.Core.InteractionSystem.CVRLoadingAvatarController loadingAvatar)
             {
-                //if (!enableAvatarInstantiatePatch.Value)
-                //    return true;
+                if (!enableMod.Value)
+                    return true;
 
                 if (cachedAssets.TryGetValue(id, out var item))
                 {
@@ -145,13 +140,24 @@ namespace Zettai
             }
         }
 
-        private static IEnumerator InstantiateItem(CacheItem item, DownloadJob.ObjectType type, string id, string owner, UgcTagsData tags)
+        private static IEnumerator InstantiateItem(CacheItem item, DownloadJob.ObjectType type, string id, string owner, UgcTagsData tags, bool wait = true)
         {
-            while (!instantiateSemaphore.Wait(0))
+            if (!wait)
             {
-                yield return null;
+                var sw = new System.Diagnostics.Stopwatch();
+                sw.Start();
+                while (!instantiateSemaphore.Wait(0))
+                {
+                    if (loadTimeoutSeconds == 0 || sw.Elapsed.TotalSeconds < loadTimeoutSeconds)
+                        yield return null;
+                    else
+                    {
+                        MelonLogger.Error($"Timeout loading asset {type}: ID: '{id}', owner: '{owner}'.");
+                        yield break;
+                    }
+                }
             }
-            MelonLogger.Msg($"Instantiating item {type}: '{owner}'.");
+            MelonLogger.Msg($"Instantiating item {type}: ID: '{id}', owner: '{owner}'.");
             GameObject parent = null;
             GameObject instance;
             if (type == DownloadJob.ObjectType.Avatar)
@@ -159,7 +165,7 @@ namespace Zettai
                 instance = InstantiateAvatar(item, id, owner, tags, ref parent, out CVRPlayerEntity player);
                 if (!instance)
                 {
-                    MelonLogger.Msg($"Instantiating item {type} failed: '{owner}'.");
+                    MelonLogger.Error($"Instantiating item {type} failed: ID: '{id}', owner: '{owner}'.");
                     instantiateSemaphore.Release();
                     yield break;
                 }
@@ -173,7 +179,7 @@ namespace Zettai
                 instance = InstantiateProp(item, owner, tags, ref parent, out var propData);
                 if (!instance)
                 {
-                    MelonLogger.Msg($"Instantiating item {type} failed: '{owner}'.");
+                    MelonLogger.Error($"Instantiating item {type} failed: ID: '{id}', owner: '{owner}'.");
                     instantiateSemaphore.Release();
                     yield break;
                 }
@@ -182,7 +188,8 @@ namespace Zettai
                     parent.SetActive(true);
                 SetPropData(propData, parent, instance);
             }
-            yield return null;
+            if (!wait)
+                yield return null;
             instantiateSemaphore.Release();
             yield break;
         }
@@ -192,7 +199,8 @@ namespace Zettai
             GameObject instance;
             if (owner == "_PLAYERLOCAL" || string.Equals(owner, MetaPort.Instance.ownerId))
             {
-                MelonLogger.Msg($"Local avatar: owner: '{owner}', MetaPort.Instance.ownerId: {MetaPort.Instance.ownerId}.");
+                if (enableLog.Value)
+                    MelonLogger.Msg($"Local avatar: owner: '{owner}', MetaPort.Instance.ownerId: {MetaPort.Instance.ownerId}.");
                 MetaPort.Instance.currentAvatarGuid = id;
                 parent = PlayerSetup.Instance.PlayerAvatarParent;
                 PlayerSetup.Instance.ClearAvatar();
@@ -306,20 +314,14 @@ namespace Zettai
                 }
             }
         }
-        // SpawnOnWorldInstance
-
         [HarmonyPatch(typeof(RootLogic), nameof(RootLogic.SpawnOnWorldInstance))]
         class SpawnOnWorldInstancePatch
         {
             static void Postfix()
             {
-                var oldLifeTimeMinutes = maxLifeTimeMinutes;
-                var oldRemoveCount = maxRemoveCount;
-                maxRemoveCount = 0;
-                maxLifeTimeMinutes = 0f;
-                CleanupCache();
-                maxRemoveCount = oldRemoveCount;
-                maxLifeTimeMinutes = oldLifeTimeMinutes;
+                if (!enableMod.Value)
+                    return;
+                EmptyCache();
             }
         }
         [HarmonyPatch(typeof(CVRAvatar), nameof(CVRAvatar.OnDestroy))]
@@ -327,6 +329,8 @@ namespace Zettai
         {
             static void Postfix(CVRAvatar __instance)
             {
+                if (!enableMod.Value)
+                    return;
                 var go = __instance.gameObject;
                 if (!enableLog.Value)
                     MelonLogger.Msg($"Deleting {go.name}, {cachedAssets.Count} cached assets.");
@@ -339,6 +343,8 @@ namespace Zettai
         {
             static void Postfix(CVRAvatar __instance)
             {
+                if (!enableMod.Value)
+                    return;
                 var go = __instance.gameObject;
                 if (!enableLog.Value)
                     MelonLogger.Msg($"Deleting prop {go.transform.root.name}, {cachedAssets.Count} cached assets.");
@@ -354,7 +360,10 @@ namespace Zettai
             static bool InstantiateAvatarPrefix(IEnumerator __result, DownloadJob.ObjectType t, AssetManagement.AvatarTags tags,
                string objectId, string instTarget, byte[] b)
             {
-                MelonLogger.Msg($"Instantiating avatar: '{objectId}', '{instTarget}'.");
+                if (!enableMod.Value)
+                    return true;
+                if (enableLog.Value)
+                    MelonLogger.Msg($"Instantiating avatar: '{objectId}', '{instTarget}'.");
                 MelonCoroutines.Start(LoadPatch(b, objectId, t, CacheItem.TagsConverter(tags), instTarget));
                 return false;
             }
@@ -366,7 +375,7 @@ namespace Zettai
                 var puppetMaster = player.PuppetMaster;
                 if (!puppetMaster)
                 {
-                    MelonLogger.Msg($"PuppetMaster is null for {player.PlayerNameplate}");
+                    MelonLogger.Msg($"PuppetMaster is null for {player.PlayerNameplate}, {player.Username}, {player.Uuid}");
                     return;
                 }
                 puppetMaster.avatarObject = instance;
@@ -375,7 +384,7 @@ namespace Zettai
             else
                 PlayerSetup.Instance.SetupAvatar(instance);
         }
-        private static IEnumerator LoadPatch(byte[] b, string id, DownloadJob.ObjectType type, UgcTagsData tags, string target)
+        private static IEnumerator LoadPatch(byte[] b, string id, DownloadJob.ObjectType type, UgcTagsData tags, string owner)
         {
             var assetPath = type == DownloadJob.ObjectType.Avatar ? AVATAR_PATH : PROP_PATH;
             if (tags == null)
@@ -384,16 +393,23 @@ namespace Zettai
             GameObject instance;
             if (b == null) 
             {
-                instance = InstantiateAvatar(cachedAssets[BLOCKED_ID], BLOCKED_ID, target, tags, ref parent, out CVRPlayerEntity player);
+                instance = InstantiateAvatar(cachedAssets[BLOCKED_ID], BLOCKED_ID, owner, tags, ref parent, out CVRPlayerEntity player);
                 yield return null;
                 if (parent)
                     parent.SetActive(true);
                 SetupInstantiatedAvatar(instance, player);
                 yield break;
             }
-            while (!bundleLoadSemaphore.Wait(0))
             {
-                yield return null;
+                var sw = new System.Diagnostics.Stopwatch();
+                sw.Start();
+                while (!bundleLoadSemaphore.Wait(0))
+                {
+                    if (sw.Elapsed.TotalSeconds < loadTimeoutSeconds)
+                        yield return null;
+                    else
+                        yield break;
+                }
             }
             bool shouldRelease = true;
             AssetBundleCreateRequest bundle = null;
@@ -403,7 +419,7 @@ namespace Zettai
                 yield return bundle;
                 if (bundle == null || !bundle.assetBundle)
                     yield break;
-                if (type == DownloadJob.ObjectType.Avatar && !CVRPlayerManager.Instance.TryGetConnected(target) && target != "_PLAYERLOCAL")
+                if (type == DownloadJob.ObjectType.Avatar && !CVRPlayerManager.Instance.TryGetConnected(owner) && owner != "_PLAYERLOCAL")
                     yield break;
                 AssetBundleRequest asyncAsset;
                 yield return asyncAsset = bundle.assetBundle.LoadAssetAsync(assetPath, typeof(GameObject));
@@ -415,23 +431,7 @@ namespace Zettai
                     shouldRelease = false;
                 }
                 var item = cachedAssets[id] = new CacheItem(id, type, gameObject);
-                if (type == DownloadJob.ObjectType.Avatar)
-                {
-                    instance = InstantiateAvatar(item, id, target, tags, ref parent, out CVRPlayerEntity player);
-                    yield return null;
-                    if (parent)
-                        parent.SetActive(true);
-                    SetupInstantiatedAvatar(instance, player);
-                }
-                else
-                {
-                    instance = InstantiateProp(item, target, tags, ref parent, out var propData);
-                    yield return null;
-                    if (parent)
-                        parent.SetActive(true);
-                    SetPropData(propData, parent, instance);
-                }
-                //UnityEngine.Scripting.GarbageCollector.CollectIncremental(UnityEngine.Scripting.GarbageCollector.incrementalTimeSliceNanoseconds);
+                yield return InstantiateItem(item, type, id, owner, tags, wait: false);
             }
             finally
             {
@@ -443,6 +443,38 @@ namespace Zettai
                     bundleLoadSemaphore.Release();
             }
             yield break;
+        }
+        /// <summary>
+        /// Clears the memory cache, keep currently loaded assets.
+        /// </summary>
+        internal static void EmptyCache()
+        {
+            var oldLifeTimeMinutes = maxLifeTimeMinutes;
+            var oldRemoveCount = maxRemoveCount;
+            maxRemoveCount = 0;
+            maxLifeTimeMinutes = 0f;
+            CleanupCache();
+            maxRemoveCount = oldRemoveCount;
+            maxLifeTimeMinutes = oldLifeTimeMinutes;
+        }
+        /// <summary>
+        /// Release Semaphores if they are stuck and preventing loading of assets. Usable with Unity Explorer in case the mod breaks.
+        /// </summary>
+        internal static void ForceReleaseSemaphores() 
+        {
+            bundleLoadSemaphore.Release();
+            instantiateSemaphore.Release();
+        }
+        /// <summary>
+         /// Force clears the memory cache, including all loaded assets. Does not affect asset instances in the scene.
+         /// </summary>
+        internal static void ForceEmptyCache()
+        {
+            foreach (var item in cachedAssets)
+            {
+                cachedAssets[item.Key].Destroy();
+            }
+            cachedAssets.Clear();
         }
     }
 }
