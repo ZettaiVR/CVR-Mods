@@ -12,9 +12,11 @@ using MelonLoader;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using UnityEngine.Scripting;
 using System.Linq;
 using UnityEngine;
 using Zettai;
+using System.Text;
 
 [assembly: MelonInfo(typeof(MemoryCache), "MemoryCache", "1.0", "Zettai")]
 [assembly: MelonGame(null, null)]
@@ -24,13 +26,12 @@ namespace Zettai
     public class MemoryCache : MelonMod
     {
         private static MelonPreferences_Entry<bool> enableMod;
-        private static MelonPreferences_Entry<bool> enableLog;
+        internal static MelonPreferences_Entry<bool> enableLog;
+        internal static MelonPreferences_Entry<bool> enableHologram;
         private static MelonPreferences_Entry<byte> maxLifeTimeMinutesEntry;
         private static MelonPreferences_Entry<byte> maxRemoveCountEntry;
         private static MelonPreferences_Entry<byte> loadTimeoutSecondsEntry;
-        private static float maxLifeTimeMinutes = 15f;
-        private static byte maxRemoveCount = 3;
-        private static byte loadTimeoutSeconds = 30;
+        private static bool FlushCache = false;
         private static readonly System.Threading.SemaphoreSlim bundleLoadSemaphore = new System.Threading.SemaphoreSlim(1, 1);
         private static readonly System.Threading.SemaphoreSlim instantiateSemaphore = new System.Threading.SemaphoreSlim(1, 1);
         private static readonly Dictionary<string, CacheItem> cachedAssets = new Dictionary<string, CacheItem>();
@@ -43,19 +44,14 @@ namespace Zettai
         {
             var category = MelonPreferences.CreateCategory("Zettai");
             enableMod = category.CreateEntry("enableMemoryCacheMod", true, "Enable MemoryCache mod");
-            enableLog = category.CreateEntry("enableAvatarInstantiateLog", false, "Enable logging");
+            enableLog = category.CreateEntry("enableMemoryCacheLog", false, "Enable MemoryCache logging");
+            enableHologram = category.CreateEntry("enableHologram", true, "Enable Hologram");
             maxLifeTimeMinutesEntry = category.CreateEntry("maxLifeTimeMinutesEntry", (byte)15, "Maximum lifetime of unused assets in cache (minutes)");
             maxRemoveCountEntry = category.CreateEntry("maxRemoveCountEntry", (byte)5, "Maximum number of assets to remove from cache per minute");
             loadTimeoutSecondsEntry = category.CreateEntry("loadTimeoutSecondsEntry", (byte)30, "Maximum time in seconds for assets to wait for loading before giving up");
-            maxLifeTimeMinutesEntry.OnValueChanged += MaxLifeTimeMinutesEntry_OnValueChanged;
-            maxRemoveCountEntry.OnValueChanged += MaxRemoveCountEntry_OnValueChanged;
-            loadTimeoutSecondsEntry.OnValueChanged += LoadTimeoutSecondsEntry_OnValueChanged;
             enableMod.OnValueChanged += EnableMod_OnValueChanged;
         }
         private void EnableMod_OnValueChanged(bool arg1, bool arg2) => EmptyCache();
-        private void LoadTimeoutSecondsEntry_OnValueChanged(byte arg1, byte arg2) => loadTimeoutSeconds = loadTimeoutSecondsEntry.Value;
-        private void MaxRemoveCountEntry_OnValueChanged(byte oldValue, byte newValue) => maxLifeTimeMinutes = maxLifeTimeMinutesEntry.Value;
-        private void MaxLifeTimeMinutesEntry_OnValueChanged(byte oldValue, byte newValue) => maxRemoveCount = maxRemoveCountEntry.Value;
         public override void OnSceneWasLoaded(int buildIndex, string sceneName) => UpdateBlockedAvatar();
         public override void OnApplicationLateStart()
         {
@@ -67,7 +63,7 @@ namespace Zettai
             try
             {
                 cachedAssets.Remove(BLOCKED_ID);
-                cachedAssets[BLOCKED_ID] = new CacheItem(BLOCKED_ID, DownloadJob.ObjectType.Avatar, MetaPort.Instance?.blockedAvatarPrefab, true);
+                cachedAssets[BLOCKED_ID] = new CacheItem(BLOCKED_ID, DownloadJob.ObjectType.Avatar, MetaPort.Instance?.blockedAvatarPrefab, BLOCKED_ID, true);
             }
             catch (Exception e)
             {
@@ -79,6 +75,7 @@ namespace Zettai
             idsToRemove.Clear();
             var keys = cachedAssets.Keys;
             var now = DateTime.UtcNow;
+            byte maxLifeTimeMinutes = FlushCache ? (byte)0 : maxLifeTimeMinutesEntry.Value;
             var maxAge = TimeSpan.FromMinutes(maxLifeTimeMinutes);
             foreach (var id in keys)
             {
@@ -89,17 +86,20 @@ namespace Zettai
             }
             if (idsToRemove.Count == 0)
                 return;
+            byte maxRemoveCount = FlushCache ? (byte)0 : maxRemoveCountEntry.Value;
             LimitRemovedCount(maxRemoveCount);
-            string removedNumber = maxRemoveCount == 0 ? "no limit on the number of assets" : $"maximum number of assets to remove was {maxRemoveCount}";
             if (enableLog.Value)
-                MelonLogger.Msg($"Clearing cache, removing {idsToRemove.Count} cached items. Maximum lifetime was {maxLifeTimeMinutes} minutes, {removedNumber}.");
+            {
+                string removedNumber = maxRemoveCount == 0 ? "no limit on the number of assets" : $"maximum number of assets to remove was {maxRemoveCount}";
+                MelonLogger.Msg($"Clearing cache, removing {idsToRemove.Count} cached items. Maximum lifetime was {maxLifeTimeMinutesEntry.Value} minutes, {removedNumber}.");
+            }
             foreach (var item in idsToRemove)
             {
                 cachedAssets[item.Key].Destroy();
                 cachedAssets.Remove(item.Key);
             }
             idsToRemove.Clear();
-            UnityEngine.Scripting.GarbageCollector.CollectIncremental(UnityEngine.Scripting.GarbageCollector.incrementalTimeSliceNanoseconds);
+            GarbageCollector.CollectIncremental(GarbageCollector.incrementalTimeSliceNanoseconds);
             Resources.UnloadUnusedAssets();
         }
 
@@ -148,7 +148,7 @@ namespace Zettai
                 sw.Start();
                 while (!instantiateSemaphore.Wait(0))
                 {
-                    if (loadTimeoutSeconds == 0 || sw.Elapsed.TotalSeconds < loadTimeoutSeconds)
+                    if (loadTimeoutSecondsEntry.Value == 0 || sw.Elapsed.TotalSeconds < loadTimeoutSecondsEntry.Value)
                         yield return null;
                     else
                     {
@@ -157,7 +157,8 @@ namespace Zettai
                     }
                 }
             }
-            MelonLogger.Msg($"Instantiating item {type}: ID: '{id}', owner: '{owner}'.");
+            if (enableLog.Value)
+                MelonLogger.Msg($"Instantiating item {type}: ID: '{id}', owner: '{owner}'.");
             GameObject parent = null;
             GameObject instance;
             if (type == DownloadJob.ObjectType.Avatar)
@@ -336,7 +337,7 @@ namespace Zettai
                 if (!enableMod.Value)
                     return;
                 var go = __instance.gameObject;
-                if (!enableLog.Value)
+                if (enableLog.Value)
                     MelonLogger.Msg($"Deleting {go.name}, {cachedAssets.Count} cached assets.");
                 RemoveInstance(go);
             }
@@ -350,11 +351,21 @@ namespace Zettai
                 if (!enableMod.Value)
                     return;
                 var go = __instance.gameObject;
-                if (!enableLog.Value)
+                if (enableLog.Value)
                     MelonLogger.Msg($"Deleting prop {go.transform.root.name}, {cachedAssets.Count} cached assets.");
                 RemoveInstance(go);
             }
         }
+
+        [HarmonyPatch(typeof(CVRAvatar))]
+        class AvatarStartPatch
+        {
+            [HarmonyPrefix]
+            [HarmonyPatch(nameof(CVRAvatar.Start))]
+            static bool InstantiateAvatarPrefix() => !enableMod.Value;
+        }
+
+
 
         [HarmonyPatch(typeof(CVRObjectLoader))]
         class AddAvatarPatch
@@ -367,10 +378,38 @@ namespace Zettai
                 if (!enableMod.Value)
                     return true;
                 if (enableLog.Value)
-                    MelonLogger.Msg($"Instantiating avatar: '{objectId}', '{instTarget}'.");
+                    MelonLogger.Msg($"Instantiating avatar: '{objectId}', '{instTarget}', tags: {TagsToString(tags)}.");
                 MelonCoroutines.Start(LoadPatch(b, objectId, t, CacheItem.TagsConverter(tags), instTarget));
                 return false;
             }
+        }
+
+        private static string TagsToString(AssetManagement.AvatarTags tags)
+        {
+            StringBuilder sb = new StringBuilder();
+            if (tags.LoudAudio) sb.Append("LoudAudio||");
+            if (tags.LongRangeAudio) sb.Append("LongRangeAudio|");
+            if (tags.ContainsMusic) sb.Append("ContainsMusic|");
+            if (tags.ScreenFx) sb.Append("ScreenFx|");
+            if (tags.FlashingColors) sb.Append("FlashingColors|");
+            if (tags.FlashingLights) sb.Append("FlashingLights|");
+            if (tags.ExtremelyBright) sb.Append("ExtremelyBright|");
+            if (tags.ParticleSystems) sb.Append("ParticleSystems|");
+            if (tags.Violence) sb.Append("Violence|");
+            if (tags.Gore) sb.Append("Gore|");
+            if (tags.Horror) sb.Append("Horror|");
+            if (tags.Jumpscare) sb.Append("Jumpscare|");
+            if (tags.ExcessivelyHuge) sb.Append("ExcessivelyHuge|");
+            if (tags.ExcessivelySmall) sb.Append("ExcessivelySmall|");
+            if (tags.Suggestive) sb.Append("Suggestive|");
+            if (tags.Nudity) sb.Append("Nudity|");
+            if (tags.AdminBanned) sb.Append("AdminBanned|");
+            if (tags.Incompatible) sb.Append("Incompatible|");
+            if (tags.LargeFileSize) sb.Append("LargeFileSize|");
+            if (tags.ExtremeFileSize) sb.Append("ExtremeFileSize|");
+            if (sb.Length > 0)
+                sb.Remove(sb.Length - 1, 1);
+            return sb.ToString();
         }
         private static void SetupInstantiatedAvatar(GameObject instance, CVRPlayerEntity player)
         {
@@ -379,7 +418,7 @@ namespace Zettai
                 var puppetMaster = player.PuppetMaster;
                 if (!puppetMaster)
                 {
-                    MelonLogger.Msg($"PuppetMaster is null for {player.PlayerNameplate}, {player.Username}, {player.Uuid}");
+                    MelonLogger.Error($"PuppetMaster is null for {player.PlayerNameplate}, {player.Username}, {player.Uuid}");
                     return;
                 }
                 puppetMaster.avatarObject = instance;
@@ -407,9 +446,10 @@ namespace Zettai
             {
                 var sw = new System.Diagnostics.Stopwatch();
                 sw.Start();
+                var timeout = loadTimeoutSecondsEntry.Value;
                 while (!bundleLoadSemaphore.Wait(0))
                 {
-                    if (sw.Elapsed.TotalSeconds < loadTimeoutSeconds)
+                    if (sw.Elapsed.TotalSeconds < timeout)
                         yield return null;
                     else
                         yield break;
@@ -434,7 +474,9 @@ namespace Zettai
                     bundleLoadSemaphore.Release();
                     shouldRelease = false;
                 }
-                var item = cachedAssets[id] = new CacheItem(id, type, gameObject);
+                
+                var name = GetName(gameObject, id);
+                var item = cachedAssets[id] = new CacheItem(id, type, gameObject, name);
                 yield return InstantiateItem(item, type, id, owner, tags, wait: false);
             }
             finally
@@ -448,18 +490,23 @@ namespace Zettai
             }
             yield break;
         }
+
+        private static string GetName(GameObject gameObject, string defaultName)
+        {
+            var animator = gameObject.GetComponent<Animator>();
+            if (!animator || !animator.isHuman || !animator.avatar)
+                return defaultName;
+            return animator.avatar.name.Replace("Avatar", "");
+        }
+
         /// <summary>
         /// Clears the memory cache, keep currently loaded assets.
         /// </summary>
         internal static void EmptyCache()
         {
-            var oldLifeTimeMinutes = maxLifeTimeMinutes;
-            var oldRemoveCount = maxRemoveCount;
-            maxRemoveCount = 0;
-            maxLifeTimeMinutes = 0f;
+            FlushCache = true;
             CleanupCache();
-            maxRemoveCount = oldRemoveCount;
-            maxLifeTimeMinutes = oldLifeTimeMinutes;
+            FlushCache = false;
         }
         /// <summary>
         /// Release Semaphores if they are stuck and preventing loading of assets. Usable with Unity Explorer in case the mod breaks.

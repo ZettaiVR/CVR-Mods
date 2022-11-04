@@ -10,25 +10,29 @@ namespace Zettai
 {
     public class CacheItem
     {
-        public CacheItem(string id, DownloadJob.ObjectType type, GameObject item)
+        public CacheItem(string id, DownloadJob.ObjectType type, GameObject item, string name)
         {
             AddTime = DateTime.UtcNow;
             AssetId = id;
             ObjectType = type;
             OriginalItem = item;
+            Name = name;
         }
-        internal CacheItem(string id, DownloadJob.ObjectType type, GameObject item, bool readOnly)
+        internal CacheItem(string id, DownloadJob.ObjectType type, GameObject item, string name, bool readOnly)
         {
             AddTime = DateTime.UtcNow;
             AssetId = id;
             ObjectType = type;
             OriginalItem = item;
             ReadOnly = readOnly;
+            Name = name;
         }
+        public override string ToString() => string.IsNullOrEmpty(Name) ? AssetId : Name;
         private readonly GameObject OriginalItem;
         private readonly HashSet<GameObject> instances = new HashSet<GameObject>();
         public bool ReadOnly { get; }
         public string AssetId { get; }
+        public string Name { get; }
         public DownloadJob.ObjectType ObjectType { get; }
         public DateTime AddTime { get; }
         public DateTime LastRefRemoved { get; private set; }
@@ -44,9 +48,9 @@ namespace Zettai
             if (!ReadOnly)
             {
                 if (isLocal)
-                    CVRTools.CleanAvatarGameObject(instance, TagsConverterAvatar(tags));
+                    Sanitizer.CleanAvatarGameObject(instance, TagsConverterAvatar(tags));
                 else
-                    CVRTools.CleanAvatarGameObjectNetwork(instance, friendsWith, TagsConverterAvatar(tags), forceShow, forceBlock);
+                    Sanitizer.CleanAvatarGameObjectNetwork(instance, friendsWith, TagsConverterAvatar(tags), forceShow, forceBlock);
                 SetAudioMixer(instance);
                 instances.Add(instance);
             }
@@ -99,7 +103,7 @@ namespace Zettai
         {
             if (playerAvatarParent.transform.childCount > 0)
                 foreach (Transform tr in playerAvatarParent.transform)
-                    UnityEngine.Object.Destroy(tr.gameObject);
+                    UnityEngine.Object.DestroyImmediate(tr.gameObject, true);
         }
         private static void SetAudioMixer(GameObject instance)
         {
