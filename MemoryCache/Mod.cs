@@ -28,6 +28,7 @@ namespace Zettai
         private static MelonPreferences_Entry<bool> enableMod;
         internal static MelonPreferences_Entry<bool> enableLog;
         internal static MelonPreferences_Entry<bool> enableHologram;
+        internal static MelonPreferences_Entry<bool> enableOwnSanitizer;
         private static MelonPreferences_Entry<byte> maxLifeTimeMinutesEntry;
         private static MelonPreferences_Entry<byte> maxRemoveCountEntry;
         private static MelonPreferences_Entry<byte> loadTimeoutSecondsEntry;
@@ -45,6 +46,7 @@ namespace Zettai
             var category = MelonPreferences.CreateCategory("Zettai");
             enableMod = category.CreateEntry("enableMemoryCacheMod", true, "Enable MemoryCache mod");
             enableLog = category.CreateEntry("enableMemoryCacheLog", false, "Enable MemoryCache logging");
+            enableOwnSanitizer = category.CreateEntry("enableOwnSanitizer", false, "Enable MemoryCache's custom asset cleaning/sanitizer");
             enableHologram = category.CreateEntry("enableHologram", true, "Enable Hologram");
             maxLifeTimeMinutesEntry = category.CreateEntry("maxLifeTimeMinutesEntry", (byte)15, "Maximum lifetime of unused assets in cache (minutes)");
             maxRemoveCountEntry = category.CreateEntry("maxRemoveCountEntry", (byte)5, "Maximum number of assets to remove from cache per minute");

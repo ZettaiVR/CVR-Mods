@@ -47,10 +47,20 @@ namespace Zettai
             instance.transform.localRotation = Quaternion.identity;
             if (!ReadOnly)
             {
-                if (isLocal)
-                    Sanitizer.CleanAvatarGameObject(instance, TagsConverterAvatar(tags));
-                else
-                    Sanitizer.CleanAvatarGameObjectNetwork(instance, friendsWith, TagsConverterAvatar(tags), forceShow, forceBlock);
+                if (MemoryCache.enableOwnSanitizer.Value)
+                {
+                    if (isLocal)
+                        Sanitizer.CleanAvatarGameObject(instance, TagsConverterAvatar(tags));
+                    else
+                        Sanitizer.CleanAvatarGameObjectNetwork(instance, friendsWith, TagsConverterAvatar(tags), forceShow, forceBlock);
+                }
+                else 
+                {
+                    if (isLocal)
+                        CVRTools.CleanAvatarGameObject(instance, TagsConverterAvatar(tags));
+                    else
+                        CVRTools.CleanAvatarGameObjectNetwork(instance, friendsWith, TagsConverterAvatar(tags), forceShow, forceBlock);
+                }
                 SetAudioMixer(instance);
                 instances.Add(instance);
             }
