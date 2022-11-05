@@ -4,7 +4,6 @@ using System.Linq;
 using System.Text;
 using UnityEngine;
 using ABI.CCK.Components;
-using ABI_RC.Core.EventSystem;
 using ABI_RC.Core.InteractionSystem;
 using ABI_RC.Core.Player;
 using ABI_RC.Core.Savior;
@@ -17,13 +16,13 @@ namespace Zettai
 {
     public static class Sanitizer
     {
-        public static void CleanAvatarGameObject(GameObject avatar, AssetManagement.AvatarTags tags)
+        public static void CleanAvatarGameObject(GameObject avatar, Tags tags)
         {
             CleanAvatarGameObject(avatar, 8, true, tags, false, false, false, false);
-            PlayerSetup.Instance.avatarTags = tags;
+            PlayerSetup.Instance.avatarTags = tags.AvatarTags;
         }
 
-        public static void CleanAvatarGameObjectNetwork(GameObject avatar, bool isFriend, AssetManagement.AvatarTags tags, bool forceShow, bool forceBlock)
+        public static void CleanAvatarGameObjectNetwork(GameObject avatar, bool isFriend, Tags tags, bool forceShow, bool forceBlock)
         {
             CleanAvatarGameObject(avatar, 10, isFriend, tags, false, forceShow, forceBlock, false);
         }
@@ -72,7 +71,7 @@ namespace Zettai
 				|| Violence || Gore || Horror || Jumpscare || ExcessivelyHuge || ExcessivelySmall || AdminBanned || Incompatible 
 				|| (!MatureContentAllowed && (NudityTag || GoreTag)) || Visibility;
 
-			public Permissions(AssetManagement.AvatarTags tags, bool disableAudio, bool isFriend, bool forceShow)
+			public Permissions(Tags tags, bool disableAudio, bool isFriend, bool forceShow)
 			{
 				Data = 0;
 				AdminBanned = tags.AdminBanned;
@@ -91,7 +90,7 @@ namespace Zettai
 				FlashingColors = CheckContentFilter("ContentFilterFlashingColors", isFriend, tags.FlashingColors);
 				FlashingLights = CheckContentFilter("ContentFilterFlashingLights", isFriend, tags.FlashingLights);
 				ExtremelyBright = CheckContentFilter("ContentFilterExtremelyBright", isFriend, tags.ExtremelyBright);
-				ScreenEffects = CheckContentFilter("ContentFilterScreenEffects", isFriend, tags.ScreenFx);
+				ScreenEffects = CheckContentFilter("ContentFilterScreenEffects", isFriend, tags.ScreenEffects);
 				Violence = CheckContentFilter("ContentFilterViolence", isFriend, tags.Violence);
 				Gore = CheckContentFilter("ContentFilterGore", isFriend, tags.Gore);
 				Horror = CheckContentFilter("ContentFilterHorror", isFriend, tags.Horror);
@@ -108,8 +107,8 @@ namespace Zettai
 				CustomShaders = CheckContentFilter("ContentFilterCustomShaders", isFriend, isApplicable: true);
 				Collider = CheckContentFilter("ContentFilterCollider", isFriend, isApplicable: true);
 				MovementParentEnabled = CheckContentFilter("InteractionMovementParentEnabled", isFriend, isApplicable: true);
-				ExcessivelyHuge = CheckContentFilter("ContentFilterExcessivelyHuge", isFriend, tags.ExcessivelyHuge);
-				ExcessivelySmall = CheckContentFilter("ContentFilterExcessivelySmall", isFriend, tags.ExcessivelySmall);
+				ExcessivelyHuge = CheckContentFilter("ContentFilterExcessivelyHuge", isFriend, tags.ExtremelyHuge);
+				ExcessivelySmall = CheckContentFilter("ContentFilterExcessivelySmall", isFriend, tags.ExtremelySmall);
 			}
             public bool GetValue(int tag) => GetValue((CVRAvatarAdvancedTaggingEntry.Tags)(1 << tag));
             public void SetValue(int tag, bool value) => SetValue((CVRAvatarAdvancedTaggingEntry.Tags)(1 << tag), value);
@@ -245,7 +244,7 @@ namespace Zettai
 			}
 		}
 
-        public static void CleanAvatarGameObject(GameObject avatar, int layer, bool isFriend, AssetManagement.AvatarTags tags, bool disableAudio = false, 
+        public static void CleanAvatarGameObject(GameObject avatar, int layer, bool isFriend, Tags tags, bool disableAudio = false, 
             bool forceShow = false, bool forceBlock = false, bool secondRun = false)
         {
             PlayerDescriptor playerDescriptor = avatar.GetComponentInParent<PlayerDescriptor>();

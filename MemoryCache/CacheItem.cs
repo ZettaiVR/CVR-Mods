@@ -1,7 +1,5 @@
 ﻿using ABI_RC.Core;
-using ABI_RC.Core.EventSystem;
 using ABI_RC.Core.IO;
-using ABI_RC.Core.Networking.API.Responses;
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -10,15 +8,16 @@ namespace Zettai
 {
     public class CacheItem
     {
-        public CacheItem(string id, DownloadJob.ObjectType type, GameObject item, string name)
+        public CacheItem(string id, DownloadJob.ObjectType type, GameObject item, Tags tags, string name)
         {
             AddTime = DateTime.UtcNow;
             AssetId = id;
             ObjectType = type;
             OriginalItem = item;
             Name = name;
+            Tags = tags;
         }
-        internal CacheItem(string id, DownloadJob.ObjectType type, GameObject item, string name, bool readOnly)
+        internal CacheItem(string id, DownloadJob.ObjectType type, GameObject item, Tags tags, string name, bool readOnly)
         {
             AddTime = DateTime.UtcNow;
             AssetId = id;
@@ -26,6 +25,7 @@ namespace Zettai
             OriginalItem = item;
             ReadOnly = readOnly;
             Name = name;
+            Tags = tags;
         }
         public override string ToString() => string.IsNullOrEmpty(Name) ? AssetId : Name;
         private readonly GameObject OriginalItem;
@@ -34,11 +34,12 @@ namespace Zettai
         public string AssetId { get; }
         public string Name { get; }
         public DownloadJob.ObjectType ObjectType { get; }
+        public Tags Tags { get; }
         public DateTime AddTime { get; }
         public DateTime LastRefRemoved { get; private set; }
         public int InstanceCount => instances.Count; 
         public bool IsEmpty => InstanceCount == 0 && !ReadOnly;
-        public GameObject GetSanitizedAvatar(GameObject parent, UgcTagsData tags, bool isLocal, bool friendsWith = false, bool forceShow = false, bool forceBlock = false) 
+        public GameObject GetSanitizedAvatar(GameObject parent, Tags tags, bool isLocal, bool friendsWith = false, bool forceShow = false, bool forceBlock = false) 
         {
             ClearTransformChildren(parent);
             parent.SetActive(false);
@@ -50,16 +51,16 @@ namespace Zettai
                 if (MemoryCache.enableOwnSanitizer.Value)
                 {
                     if (isLocal)
-                        Sanitizer.CleanAvatarGameObject(instance, TagsConverterAvatar(tags));
+                        Sanitizer.CleanAvatarGameObject(instance, tags);
                     else
-                        Sanitizer.CleanAvatarGameObjectNetwork(instance, friendsWith, TagsConverterAvatar(tags), forceShow, forceBlock);
+                        Sanitizer.CleanAvatarGameObjectNetwork(instance, friendsWith, tags, forceShow, forceBlock);
                 }
                 else 
                 {
                     if (isLocal)
-                        CVRTools.CleanAvatarGameObject(instance, TagsConverterAvatar(tags));
+                        CVRTools.CleanAvatarGameObject(instance, tags.AvatarTags);
                     else
-                        CVRTools.CleanAvatarGameObjectNetwork(instance, friendsWith, TagsConverterAvatar(tags), forceShow, forceBlock);
+                        CVRTools.CleanAvatarGameObjectNetwork(instance, friendsWith, tags.AvatarTags, forceShow, forceBlock);
                 }
                 SetAudioMixer(instance);
                 instances.Add(instance);
@@ -80,17 +81,16 @@ namespace Zettai
             transforms.Clear();
         }
 
-        public GameObject GetSanitizedProp(GameObject parent, UgcTagsData tags, bool isOwnOrFriend, bool? visibility)
+        public GameObject GetSanitizedProp(GameObject parent, Tags tags, bool isOwnOrFriend, bool? visibility)
         {
             ClearTransformChildren(parent);
             parent.SetActive(false);
             var instance = GameObject.Instantiate(OriginalItem, parent.transform);
             instance.transform.localPosition = Vector3.zero;
-            instance.transform.localRotation = Quaternion.identity;
-            var convertedTags = TagsConverterProp(tags);
+            instance.transform.localRotation = Quaternion.identity;;
             bool forceBlock = visibility == false;
             bool forceShow = visibility == true;
-            CVRTools.CleanPropGameObjectNetwork(instance, isOwnOrFriend, convertedTags, false, forceShow, forceBlock, false);
+            CVRTools.CleanPropGameObjectNetwork(instance, isOwnOrFriend, tags.PropTags, false, forceShow, forceBlock, false);
             NormalizeQuaternionAll(parent.transform);
             //parent.SetActive(true);
             instances.Add(instance);
@@ -125,97 +125,6 @@ namespace Zettai
                 audioSources[i].outputAudioMixerGroup = mixer;
         }
         private static readonly List<AudioSource> audioSources = new List<AudioSource>();
-        public static UgcTagsData TagsConverter(AssetManagement.PropTags tags) => new UgcTagsData
-        {
-            LoudAudio = tags.LoudAudio,
-            LongRangeAudio = tags.LongRangeAudio,
-            ContainsMusic = tags.ContainsMusic,
-            ScreenEffects = tags.ScreenFx,
-            FlashingColors = tags.FlashingColors,
-            FlashingLights = tags.FlashingLights,
-            ExtremelyBright = tags.ExtremelyBright,
-            ParticleSystems = tags.ParticleSystems,
-            Violence = tags.Violence,
-            Gore = tags.Gore,
-            Horror = tags.Horror,
-            Jumpscare = tags.Jumpscare,
-            ExtremelyHuge = tags.ExcessivelyHuge,
-            ExtremelySmall = tags.ExcessivelySmall,
-            Suggestive = tags.Suggestive,
-            Nudity = tags.Nudity,
-            AdminBanned = tags.AdminBanned,
-            Incompatible = tags.Incompatible,
-            LargeFileSize = tags.LargeFileSize,
-            ExtremeFileSize = tags.ExtremeFileSize
-        };
-        private static AssetManagement.AvatarTags TagsConverterAvatar(UgcTagsData tags) => new AssetManagement.AvatarTags
-        {
-            LoudAudio = tags.LoudAudio,
-            LongRangeAudio = tags.LongRangeAudio,
-            ContainsMusic = tags.ContainsMusic,
-            ScreenFx = tags.ScreenEffects,
-            FlashingColors = tags.FlashingColors,
-            FlashingLights = tags.FlashingLights,
-            ExtremelyBright = tags.ExtremelyBright,
-            ParticleSystems = tags.ParticleSystems,
-            Violence = tags.Violence,
-            Gore = tags.Gore,
-            Horror = tags.Horror,
-            Jumpscare = tags.Jumpscare,
-            ExcessivelyHuge = tags.ExtremelyHuge,
-            ExcessivelySmall = tags.ExtremelySmall,
-            Suggestive = tags.Suggestive,
-            Nudity = tags.Nudity,
-            AdminBanned = tags.AdminBanned,
-            Incompatible = tags.Incompatible,
-            LargeFileSize = tags.LargeFileSize,
-            ExtremeFileSize = tags.ExtremeFileSize
-        };
-        private static AssetManagement.PropTags TagsConverterProp(UgcTagsData tags) => new AssetManagement.PropTags
-        {
-            LoudAudio = tags.LoudAudio,
-            LongRangeAudio = tags.LongRangeAudio,
-            ContainsMusic = tags.ContainsMusic,
-            ScreenFx = tags.ScreenEffects,
-            FlashingColors = tags.FlashingColors,
-            FlashingLights = tags.FlashingLights,
-            ExtremelyBright = tags.ExtremelyBright,
-            ParticleSystems = tags.ParticleSystems,
-            Violence = tags.Violence,
-            Gore = tags.Gore,
-            Horror = tags.Horror,
-            Jumpscare = tags.Jumpscare,
-            ExcessivelyHuge = tags.ExtremelyHuge,
-            ExcessivelySmall = tags.ExtremelySmall,
-            Suggestive = tags.Suggestive,
-            Nudity = tags.Nudity,
-            AdminBanned = tags.AdminBanned,
-            Incompatible = tags.Incompatible,
-            LargeFileSize = tags.LargeFileSize,
-            ExtremeFileSize = tags.ExtremeFileSize,
-        };
-        public static UgcTagsData TagsConverter(AssetManagement.AvatarTags tags) => new UgcTagsData
-        {
-            LoudAudio = tags.LoudAudio,
-            LongRangeAudio = tags.LongRangeAudio,
-            ContainsMusic = tags.ContainsMusic,
-            ScreenEffects = tags.ScreenFx,
-            FlashingColors = tags.FlashingColors,
-            FlashingLights = tags.FlashingLights,
-            ExtremelyBright = tags.ExtremelyBright,
-            ParticleSystems = tags.ParticleSystems,
-            Violence = tags.Violence,
-            Gore = tags.Gore,
-            Horror = tags.Horror,
-            Jumpscare = tags.Jumpscare,
-            ExtremelyHuge = tags.ExcessivelyHuge,
-            ExtremelySmall = tags.ExcessivelySmall,
-            Suggestive = tags.Suggestive,
-            Nudity = tags.Nudity,
-            AdminBanned = tags.AdminBanned,
-            Incompatible = tags.Incompatible,
-            LargeFileSize = tags.LargeFileSize,
-            ExtremeFileSize = tags.ExtremeFileSize
-        };
+      
     }
 }
