@@ -350,6 +350,8 @@ namespace Zettai
                 if (CheckLists(type, component, layer, cvrAvatar, p, local, hips, ref particleCount))
                     continue;
             }
+            if ((audioSourceCount > 0 || particleCount > 0) && MemoryCache.enableLog.Value)
+                MelonLoader.MelonLogger.Msg($"Avatar on '{cvrAvatar.transform.root.name}': audioSourceCount: '{audioSourceCount}', particleCount: '{particleCount}'");
         }
 
         private static void SetLayer(int layer, Component component) => component.gameObject.layer = layer;
@@ -637,7 +639,6 @@ namespace Zettai
                     allowedTypes.Remove(item);
                 }
             }
-
             removedComponents.Clear();
             gameObject.GetComponentsInChildren(true, components);
             for (int i = 0; i < components.Count; i++)
@@ -661,6 +662,8 @@ namespace Zettai
                     }
                     continue;
                 }
+                if (MemoryCache.enableLog.Value && removedComponents.Length == 0)
+                    AddAssetType(assetType);
                 RemoveComponent(component, compType);
             }
             if (removedComponents.Length > 0)
@@ -671,6 +674,12 @@ namespace Zettai
             gameObject.GetComponentsInChildren(true, components);
             stopWatch.Stop();
             return (uint)(stopWatch.Elapsed.TotalMilliseconds * 1000);
+        }
+        private static void AddAssetType(AssetType assetType)
+        {
+            removedComponents.Append("Removed components from asset type '");
+            removedComponents.Append(assetType);
+            removedComponents.AppendLine("':");
         }
         private static void LimitRenderer(Renderer renderer)
         {

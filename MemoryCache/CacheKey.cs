@@ -7,13 +7,15 @@ namespace Zettai
         public bool Valid { get; }
         public Guid Id { get; }
         public long Version { get; }
+        public ulong KeyHash { get; }
         public string IdString { get; }
         public string VersionString { get; }
-        public CacheKey(string id, string fileId)
+        public CacheKey(string id, string fileId, ulong keyHash)
         {
-            bool IdParseSuccess = long.TryParse(fileId, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out long parsed);
+            long.TryParse(fileId, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out long parsed);
             bool GuidParseSuccess = Guid.TryParse(id, out var guid);
-            Valid = IdParseSuccess && GuidParseSuccess;
+            Valid = GuidParseSuccess;
+            KeyHash = keyHash;
             if (Valid)
             {
                 Version = parsed;
@@ -23,21 +25,22 @@ namespace Zettai
             IdString = id;
             VersionString = fileId;
         }
-        public CacheKey(Guid id, long fileId)
+        public CacheKey(Guid id, long fileId, ulong keyHash)
         {
             Version = fileId;
             Id = id;
             Valid = true;
+            KeyHash = keyHash;
         }
         public override bool Equals(object obj)
         {
             if (obj is CacheKey key)
-                return (Valid && key.Valid && Version == key.Version && Id == key.Id) 
+                return (Valid && key.Valid && KeyHash == key.KeyHash && Id == key.Id) 
                     || (!Valid && !key.Valid && string.Equals(VersionString, key.VersionString) && string.Equals(IdString, key.IdString));
             else
                 return base.Equals(obj);
         }
-        public override string ToString() => Valid ? Id.ToString() + '_' + Version : '!' +  IdString + '_' + VersionString;
-        public override int GetHashCode() => (int)(Id.GetHashCode() * Version);
+        public override string ToString() => Valid ? Id.ToString() + '_' + KeyHash : '!' +  IdString + '_' + KeyHash;
+        public override int GetHashCode() => (int)(Id.GetHashCode() * (long)KeyHash);
     }
 }

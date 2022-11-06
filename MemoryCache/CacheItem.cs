@@ -32,6 +32,7 @@ namespace Zettai
         public override string ToString() => string.IsNullOrEmpty(Name) ? AssetId : Name;
         private readonly GameObject OriginalItem;
         private readonly HashSet<GameObject> instances = new HashSet<GameObject>();
+        private DateTime lastRefRemoved;
         public bool ReadOnly { get; }
         public string AssetId { get; }
         public string FileId { get; }
@@ -39,9 +40,12 @@ namespace Zettai
         public DownloadJob.ObjectType ObjectType { get; }
         public Tags Tags { get; }
         public DateTime AddTime { get; }
-        public DateTime LastRefRemoved { get; private set; }
-        public int InstanceCount => instances.Count; 
-        public bool IsEmpty => InstanceCount == 0 && !ReadOnly;
+        public int InstanceCount => instances.Count;
+        public bool CanRemove(TimeSpan maxAge, DateTime now, out TimeSpan age)
+        {
+            age = now - lastRefRemoved;
+            return !ReadOnly && InstanceCount == 0 && age > maxAge;
+        }
         public GameObject GetSanitizedAvatar(GameObject parent, Tags tags, bool isLocal, bool friendsWith = false, bool forceShow = false, bool forceBlock = false) 
         {
             ClearTransformChildren(parent);
@@ -66,7 +70,7 @@ namespace Zettai
                         CVRTools.CleanAvatarGameObjectNetwork(instance, friendsWith, tags.AvatarTags, forceShow, forceBlock);
                 }
                 SetAudioMixer(instance);
-                instances.Add(instance);
+                AddInstance(instance);
             }
             NormalizeQuaternionAll(parent.transform);
             //parent.SetActive(true);  // done later to split cpu load to multiple frames
@@ -83,7 +87,6 @@ namespace Zettai
             }
             transforms.Clear();
         }
-
         public GameObject GetSanitizedProp(GameObject parent, Tags tags, bool isOwnOrFriend, bool? visibility)
         {
             ClearTransformChildren(parent);
@@ -96,14 +99,28 @@ namespace Zettai
             CVRTools.CleanPropGameObjectNetwork(instance, isOwnOrFriend, tags.PropTags, false, forceShow, forceBlock, false);
             NormalizeQuaternionAll(parent.transform);
             //parent.SetActive(true);
-            instances.Add(instance);
+            AddInstance(instance);
             return instance;
         }
-        public void RemoveInstance(GameObject item)
+        private void AddInstance(GameObject item)
+        {
+            instances.Add(item);
+            cacheInstances.Add(item, this);
+        }
+        public static bool RemoveInstance(GameObject item) 
+        {
+            if (cacheInstances.TryGetValue(item, out var cacheItem)) 
+            {
+                cacheItem.RemoveInstanceInternal(item);
+                return true;
+            }
+            return false;
+        }
+        private void RemoveInstanceInternal(GameObject item)
         {
             var removed = instances.Remove(item);
             if (removed)
-                LastRefRemoved = DateTime.UtcNow;
+                lastRefRemoved = DateTime.UtcNow;
         }
         public bool HasInstance(GameObject item) => instances.Contains(item);
         internal void Destroy()
@@ -114,8 +131,8 @@ namespace Zettai
         public bool IsMatch(DownloadJob.ObjectType type, string id, string fileID) => 
             type == ObjectType &&
             string.Equals(id, AssetId) &&
-            string.Equals(fileID, FileId);
-        private static void ClearTransformChildren(GameObject playerAvatarParent)
+            (string.IsNullOrEmpty(fileID) || string.Equals(fileID, FileId));
+        internal static void ClearTransformChildren(GameObject playerAvatarParent)
         {
             if (playerAvatarParent.transform.childCount > 0)
                 foreach (Transform tr in playerAvatarParent.transform)
@@ -131,6 +148,6 @@ namespace Zettai
                 audioSources[i].outputAudioMixerGroup = mixer;
         }
         private static readonly List<AudioSource> audioSources = new List<AudioSource>();
-        
+        private static readonly Dictionary<GameObject, CacheItem> cacheInstances = new Dictionary<GameObject, CacheItem>();
     }
 }
