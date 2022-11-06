@@ -30,145 +30,147 @@ namespace Zettai
 
         public UgcTagsData UgcTagsData => new UgcTagsData
         {
-            LoudAudio =                                  LoudAudio,
-            LongRangeAudio =                                  LongRangeAudio,
-            ContainsMusic =                                  ContainsMusic,
-            ScreenEffects =                                  ScreenEffects,
-            FlashingColors =                                  FlashingColors,
-            FlashingLights =                                  FlashingLights,
-            ExtremelyBright =                                  ExtremelyBright,
-            ParticleSystems =                                  ParticleSystems,
-            Violence =                                  Violence,
-            Gore =                                  Gore,
-            Horror =                                  Horror,
-            Jumpscare =                                  Jumpscare,
-            ExtremelyHuge =                                  ExtremelyHuge,
-            ExtremelySmall =                                  ExtremelySmall,
-            Suggestive =                                  Suggestive,
-            Nudity =                                  Nudity,
-            AdminBanned =                                  AdminBanned,
-            Incompatible =                                  Incompatible,
-            LargeFileSize =                                  LargeFileSize,
-            ExtremeFileSize =                                  ExtremeFileSize
+            LoudAudio = LoudAudio,
+            LongRangeAudio = LongRangeAudio,
+            ContainsMusic = ContainsMusic,
+            ScreenEffects = ScreenEffects,
+            FlashingColors = FlashingColors,
+            FlashingLights = FlashingLights,
+            ExtremelyBright = ExtremelyBright,
+            ParticleSystems = ParticleSystems,
+            Violence = Violence,
+            Gore = Gore,
+            Horror = Horror,
+            Jumpscare = Jumpscare,
+            ExtremelyHuge = ExtremelyHuge,
+            ExtremelySmall = ExtremelySmall,
+            Suggestive = Suggestive,
+            Nudity = Nudity,
+            AdminBanned = AdminBanned,
+            Incompatible = Incompatible,
+            LargeFileSize = LargeFileSize,
+            ExtremeFileSize = ExtremeFileSize
         };
         public AssetManagement.PropTags PropTags => new AssetManagement.PropTags
         {
-            LoudAudio =                                  LoudAudio,
-            LongRangeAudio =                                  LongRangeAudio,
-            ContainsMusic =                                  ContainsMusic,
-            ScreenFx =                                  ScreenEffects,
-            FlashingColors =                                  FlashingColors,
-            FlashingLights =                                  FlashingLights,
-            ExtremelyBright =                                  ExtremelyBright,
-            ParticleSystems =                                  ParticleSystems,
-            Violence =                                  Violence,
-            Gore =                                  Gore,
-            Horror =                                  Horror,
-            Jumpscare =                                  Jumpscare,
-            ExcessivelyHuge =                                  ExtremelyHuge,
-            ExcessivelySmall =                                  ExtremelySmall,
-            Suggestive =                                  Suggestive,
-            Nudity =                                  Nudity,
-            AdminBanned =                                  AdminBanned,
-            Incompatible =                                  Incompatible,
-            LargeFileSize =                                  LargeFileSize,
-            ExtremeFileSize =                                  ExtremeFileSize,
+            LoudAudio = LoudAudio,
+            LongRangeAudio = LongRangeAudio,
+            ContainsMusic = ContainsMusic,
+            ScreenFx = ScreenEffects,
+            FlashingColors = FlashingColors,
+            FlashingLights = FlashingLights,
+            ExtremelyBright = ExtremelyBright,
+            ParticleSystems = ParticleSystems,
+            Violence = Violence,
+            Gore = Gore,
+            Horror = Horror,
+            Jumpscare = Jumpscare,
+            ExcessivelyHuge = ExtremelyHuge,
+            ExcessivelySmall = ExtremelySmall,
+            Suggestive = Suggestive,
+            Nudity = Nudity,
+            AdminBanned = AdminBanned,
+            Incompatible = Incompatible,
+            LargeFileSize = LargeFileSize,
+            ExtremeFileSize = ExtremeFileSize,
         };
         public AssetManagement.AvatarTags AvatarTags => new AssetManagement.AvatarTags
         {
-            LoudAudio =                                  LoudAudio,
-            LongRangeAudio =                                  LongRangeAudio,
-            ContainsMusic =                                  ContainsMusic,
-            ScreenFx =                                  ScreenEffects,
-            FlashingColors =                                  FlashingColors,
-            FlashingLights =                                  FlashingLights,
-            ExtremelyBright =                                  ExtremelyBright,
-            ParticleSystems =                                  ParticleSystems,
-            Violence =                                  Violence,
-            Gore =                                  Gore,
-            Horror =                                  Horror,
-            Jumpscare =                                  Jumpscare,
-            ExcessivelyHuge =                                  ExtremelyHuge,
-            ExcessivelySmall =                                  ExtremelySmall,
-            Suggestive =                                  Suggestive,
-            Nudity =                                  Nudity,
-            AdminBanned =                                  AdminBanned,
-            Incompatible =                                  Incompatible,
-            LargeFileSize =                                  LargeFileSize,
-            ExtremeFileSize =                                  ExtremeFileSize,
+            LoudAudio = LoudAudio,
+            LongRangeAudio = LongRangeAudio,
+            ContainsMusic = ContainsMusic,
+            ScreenFx = ScreenEffects,
+            FlashingColors = FlashingColors,
+            FlashingLights = FlashingLights,
+            ExtremelyBright = ExtremelyBright,
+            ParticleSystems = ParticleSystems,
+            Violence = Violence,
+            Gore = Gore,
+            Horror = Horror,
+            Jumpscare = Jumpscare,
+            ExcessivelyHuge = ExtremelyHuge,
+            ExcessivelySmall = ExtremelySmall,
+            Suggestive = Suggestive,
+            Nudity = Nudity,
+            AdminBanned = AdminBanned,
+            Incompatible = Incompatible,
+            LargeFileSize = LargeFileSize,
+            ExtremeFileSize = ExtremeFileSize,
         };
         public Tags() => Data = 0;
         public Tags(AssetManagement.AvatarTags tags)
         {
-            Data =                                  0;
-            LoudAudio =                                  tags.LoudAudio;
-            LongRangeAudio =                                  tags.LongRangeAudio;
-            ContainsMusic =                                  tags.ContainsMusic;
-            ScreenEffects =                                  tags.ScreenFx;
-            FlashingColors =                                  tags.FlashingColors;
-            FlashingLights =                                  tags.FlashingLights;
-            ExtremelyBright =                                  tags.ExtremelyBright;
-            ParticleSystems =                                  tags.ParticleSystems;
-            Violence =                                  tags.Violence;
-            Gore =                                  tags.Gore;
-            Horror =                                  tags.Horror;
-            Jumpscare =                                  tags.Jumpscare;
-            ExtremelyHuge =                                  tags.ExcessivelyHuge;
-            ExtremelySmall =                                  tags.ExcessivelySmall;
-            Suggestive =                                  tags.Suggestive;
-            Nudity =                                  tags.Nudity;
-            AdminBanned =                                  tags.AdminBanned;
-            Incompatible =                                  tags.Incompatible;
-            LargeFileSize =                                  tags.LargeFileSize;
-            ExtremeFileSize =                                  tags.ExtremeFileSize;
+            Data = 0;
+            LoudAudio = tags.LoudAudio;
+            LongRangeAudio = tags.LongRangeAudio;
+            ContainsMusic = tags.ContainsMusic;
+            ScreenEffects = tags.ScreenFx;
+            FlashingColors = tags.FlashingColors;
+            FlashingLights = tags.FlashingLights;
+            ExtremelyBright = tags.ExtremelyBright;
+            ParticleSystems = tags.ParticleSystems;
+            Violence = tags.Violence;
+            Gore = tags.Gore;
+            Horror = tags.Horror;
+            Jumpscare = tags.Jumpscare;
+            ExtremelyHuge = tags.ExcessivelyHuge;
+            ExtremelySmall = tags.ExcessivelySmall;
+            Suggestive = tags.Suggestive;
+            Nudity = tags.Nudity;
+            AdminBanned = tags.AdminBanned;
+            Incompatible = tags.Incompatible;
+            LargeFileSize = tags.LargeFileSize;
+            ExtremeFileSize = tags.ExtremeFileSize;
         }
         public Tags(AssetManagement.PropTags tags)
         {
-            Data =                                  0;
-            LoudAudio =                                  tags.LoudAudio;
-            LongRangeAudio =                                  tags.LongRangeAudio;
-            ContainsMusic =                                  tags.ContainsMusic;
-            ScreenEffects =                                  tags.ScreenFx;
-            FlashingColors =                                  tags.FlashingColors;
-            FlashingLights =                                  tags.FlashingLights;
-            ExtremelyBright =                                  tags.ExtremelyBright;
-            ParticleSystems =                                  tags.ParticleSystems;
-            Violence =                                  tags.Violence;
-            Gore =                                  tags.Gore;
-            Horror =                                  tags.Horror;
-            Jumpscare =                                  tags.Jumpscare;
-            ExtremelyHuge =                                  tags.ExcessivelyHuge;
-            ExtremelySmall =                                  tags.ExcessivelySmall;
-            Suggestive =                                  tags.Suggestive;
-            Nudity =                                  tags.Nudity;
-            AdminBanned =                                  tags.AdminBanned;
-            Incompatible =                                  tags.Incompatible;
-            LargeFileSize =                                  tags.LargeFileSize;
-            ExtremeFileSize =                                  tags.ExtremeFileSize;
+            Data = 0;
+            LoudAudio = tags.LoudAudio;
+            LongRangeAudio = tags.LongRangeAudio;
+            ContainsMusic = tags.ContainsMusic;
+            ScreenEffects = tags.ScreenFx;
+            FlashingColors = tags.FlashingColors;
+            FlashingLights = tags.FlashingLights;
+            ExtremelyBright = tags.ExtremelyBright;
+            ParticleSystems = tags.ParticleSystems;
+            Violence = tags.Violence;
+            Gore = tags.Gore;
+            Horror = tags.Horror;
+            Jumpscare = tags.Jumpscare;
+            ExtremelyHuge = tags.ExcessivelyHuge;
+            ExtremelySmall = tags.ExcessivelySmall;
+            Suggestive = tags.Suggestive;
+            Nudity = tags.Nudity;
+            AdminBanned = tags.AdminBanned;
+            Incompatible = tags.Incompatible;
+            LargeFileSize = tags.LargeFileSize;
+            ExtremeFileSize = tags.ExtremeFileSize;
         }
         public Tags(UgcTagsData tags)
         {
-            Data =                                  0;
-            LoudAudio =                                  tags.LoudAudio;
-            LongRangeAudio =                                  tags.LongRangeAudio;
-            ContainsMusic =                                  tags.ContainsMusic;
-            ScreenEffects =                                  tags.ScreenEffects;
-            FlashingColors =                                  tags.FlashingColors;
-            FlashingLights =                                  tags.FlashingLights;
-            ExtremelyBright =                                  tags.ExtremelyBright;
-            ParticleSystems =                                  tags.ParticleSystems;
-            Violence =                                  tags.Violence;
-            Gore =                                  tags.Gore;
-            Horror =                                  tags.Horror;
-            Jumpscare =                                  tags.Jumpscare;
-            ExtremelyHuge =                                  tags.ExtremelyHuge;
-            ExtremelySmall =                                  tags.ExtremelySmall;
-            Suggestive =                                  tags.Suggestive;
-            Nudity =                                  tags.Nudity;
-            AdminBanned =                                  tags.AdminBanned;
-            Incompatible =                                  tags.Incompatible;
-            LargeFileSize =                                  tags.LargeFileSize;
-            ExtremeFileSize =                                  tags.ExtremeFileSize;
+            Data = 0;
+            if (tags == null)
+                return;
+            LoudAudio = tags.LoudAudio;
+            LongRangeAudio = tags.LongRangeAudio;
+            ContainsMusic = tags.ContainsMusic;
+            ScreenEffects = tags.ScreenEffects;
+            FlashingColors = tags.FlashingColors;
+            FlashingLights = tags.FlashingLights;
+            ExtremelyBright = tags.ExtremelyBright;
+            ParticleSystems = tags.ParticleSystems;
+            Violence = tags.Violence;
+            Gore = tags.Gore;
+            Horror = tags.Horror;
+            Jumpscare = tags.Jumpscare;
+            ExtremelyHuge = tags.ExtremelyHuge;
+            ExtremelySmall = tags.ExtremelySmall;
+            Suggestive = tags.Suggestive;
+            Nudity = tags.Nudity;
+            AdminBanned = tags.AdminBanned;
+            Incompatible = tags.Incompatible;
+            LargeFileSize = tags.LargeFileSize;
+            ExtremeFileSize = tags.ExtremeFileSize;
         }
         public override string ToString()
         {
@@ -195,6 +197,8 @@ namespace Zettai
             if (ExtremeFileSize) sb.Append("ExtremeFileSize|");
             if (sb.Length > 0)
                 sb.Remove(sb.Length - 1, 1);
+            else
+                return "-none-";
             return sb.ToString();
         }
         private enum TagsEnum

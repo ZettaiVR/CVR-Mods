@@ -8,7 +8,7 @@ namespace Zettai
 {
     public class CacheItem
     {
-        public CacheItem(string id, DownloadJob.ObjectType type, GameObject item, Tags tags, string name)
+        public CacheItem(string id, string objectFileId, DownloadJob.ObjectType type, GameObject item, Tags tags, string name)
         {
             AddTime = DateTime.UtcNow;
             AssetId = id;
@@ -16,8 +16,9 @@ namespace Zettai
             OriginalItem = item;
             Name = name;
             Tags = tags;
+            FileId = objectFileId;
         }
-        internal CacheItem(string id, DownloadJob.ObjectType type, GameObject item, Tags tags, string name, bool readOnly)
+        internal CacheItem(string id, string objectFileId, DownloadJob.ObjectType type, GameObject item, Tags tags, string name, bool readOnly)
         {
             AddTime = DateTime.UtcNow;
             AssetId = id;
@@ -26,12 +27,14 @@ namespace Zettai
             ReadOnly = readOnly;
             Name = name;
             Tags = tags;
+            FileId = objectFileId;
         }
         public override string ToString() => string.IsNullOrEmpty(Name) ? AssetId : Name;
         private readonly GameObject OriginalItem;
         private readonly HashSet<GameObject> instances = new HashSet<GameObject>();
         public bool ReadOnly { get; }
         public string AssetId { get; }
+        public string FileId { get; }
         public string Name { get; }
         public DownloadJob.ObjectType ObjectType { get; }
         public Tags Tags { get; }
@@ -107,8 +110,11 @@ namespace Zettai
         {
             if (!ReadOnly)
                 GameObject.DestroyImmediate(OriginalItem, true);
-        }       
-        public bool IsMatch(DownloadJob.ObjectType type, string id) => type == ObjectType && string.Equals(id, AssetId);       
+        }
+        public bool IsMatch(DownloadJob.ObjectType type, string id, string fileID) => 
+            type == ObjectType &&
+            string.Equals(id, AssetId) &&
+            string.Equals(fileID, FileId);
         private static void ClearTransformChildren(GameObject playerAvatarParent)
         {
             if (playerAvatarParent.transform.childCount > 0)
@@ -125,6 +131,6 @@ namespace Zettai
                 audioSources[i].outputAudioMixerGroup = mixer;
         }
         private static readonly List<AudioSource> audioSources = new List<AudioSource>();
-      
+        
     }
 }

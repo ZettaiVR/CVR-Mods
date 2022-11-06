@@ -15,7 +15,6 @@ using UnityEngine.Scripting;
 using System.Linq;
 using UnityEngine;
 using Zettai;
-using System.Text;
 
 [assembly: MelonInfo(typeof(MemoryCache), "MemoryCache", "1.0", "Zettai")]
 [assembly: MelonGame(null, null)]
@@ -35,10 +34,13 @@ namespace Zettai
         private static bool FlushCache = false;
         private static readonly System.Threading.SemaphoreSlim bundleLoadSemaphore = new System.Threading.SemaphoreSlim(1, 1);
         private static readonly System.Threading.SemaphoreSlim instantiateSemaphore = new System.Threading.SemaphoreSlim(1, 1);
-        private static readonly Dictionary<string, CacheItem> cachedAssets = new Dictionary<string, CacheItem>();
-        private static readonly Dictionary<string, TimeSpan> idsToRemove = new Dictionary<string, TimeSpan>(10);
-        private static readonly HashSet<string> idsToRemoveStrings = new HashSet<string>();
-        const string BLOCKED_ID = "blocked";
+        private static readonly Dictionary<CacheKey, CacheItem> cachedAssets = new Dictionary<CacheKey, CacheItem>();
+        private static readonly Dictionary<CacheKey, TimeSpan> idsToRemove = new Dictionary<CacheKey, TimeSpan>(10);
+        private static readonly HashSet<CacheKey> idsToRemoveStrings = new HashSet<CacheKey>();
+        private static readonly Guid BLOCKED_GUID = new Guid("E765F452-F372-4ECE-B362-1F48E64D2F7E");
+        private static readonly CacheKey BlockedKey = new CacheKey(BLOCKED_GUID, 0);
+        const string BLOCKED_NAME = "Blocked";
+        const string BLOCKED_VERSION = "000000000000";
         const string PROP_PATH = "assets/abi.cck/resources/cache/_cvrspawnable.prefab";
         const string AVATAR_PATH = "assets/abi.cck/resources/cache/_cvravatar.prefab";
         public override void OnApplicationStart()
@@ -65,8 +67,8 @@ namespace Zettai
         {
             try
             {
-                cachedAssets.Remove(BLOCKED_ID);
-                cachedAssets[BLOCKED_ID] = new CacheItem(BLOCKED_ID, DownloadJob.ObjectType.Avatar, MetaPort.Instance?.blockedAvatarPrefab, new Tags(), BLOCKED_ID, true);
+                cachedAssets.Remove(BlockedKey);
+                cachedAssets[BlockedKey] = new CacheItem(BLOCKED_NAME, BLOCKED_VERSION, DownloadJob.ObjectType.Avatar, MetaPort.Instance?.blockedAvatarPrefab, new Tags(), BLOCKED_NAME, true);
             }
             catch (Exception e)
             {
@@ -127,21 +129,30 @@ namespace Zettai
                 bool joinOnComplete, string hash, string fileID, string location, ABI_RC.Core.Networking.API.Responses.UgcTagsData tags,
                 CVRLoadingAvatarController loadingAvatar)
             {
-                if (!enableMod.Value)
+                if (!enableMod.Value || (type != DownloadJob.ObjectType.Avatar && type != DownloadJob.ObjectType.Prop))
                     return true;
-
-                if (cachedAssets.TryGetValue(id, out var item))
+                if (enableLog.Value)
+                    MelonLogger.Msg($"Downloading avatar: '{id}', '{fileID}', '{hash}', tags: { new Tags(tags) }.");
+                var cacheKey = new CacheKey(id, fileID);
+                if (!string.IsNullOrEmpty(fileID) && !string.IsNullOrEmpty(id) && cachedAssets.TryGetValue(cacheKey, out var item))
                 {
-                    if (!item.IsMatch(type, id))
+                    if (!item.IsMatch(type, id, fileID))
+                    {
+                        if (enableLog.Value)
+                            MelonLogger.Msg($"Downloading {type}.");
                         return true;
-                    MelonCoroutines.Start(InstantiateItem(item, type, id, owner));
+                    }
+                    if (enableLog.Value)
+                        MelonLogger.Msg($"Loading avatar from cache");
+                    MelonCoroutines.Start(InstantiateItem(item, type, id, fileID, owner));
                     return false;
                 }
+                if (enableLog.Value)
+                    MelonLogger.Msg($"Downloading {type}.");
                 return true;
             }
         }
-
-        private static IEnumerator InstantiateItem(CacheItem item, DownloadJob.ObjectType type, string id, string owner, bool wait = true)
+        private static IEnumerator InstantiateItem(CacheItem item, DownloadJob.ObjectType type, string id, string fileId, string owner, bool wait = true)
         {
             if (wait)
             {
@@ -156,13 +167,13 @@ namespace Zettai
                         yield return null;
                     else
                     {
-                        MelonLogger.Error($"Timeout loading asset {type}: ID: '{id}', owner: '{owner}'.");
+                        MelonLogger.Error($"Timeout loading asset {type}: ID: '{id}', fileId: {fileId}, owner: '{owner}'.");
                         yield break;
                     }
                 }
             }
             if (enableLog.Value)
-                MelonLogger.Msg($"Instantiating item {type}: ID: '{id}', owner: '{owner}'.");
+                MelonLogger.Msg($"Instantiating item {type}: ID: '{id}', fileId: {fileId}, owner: '{owner}'.");
             GameObject parent = null;
             GameObject instance;
             if (type == DownloadJob.ObjectType.Avatar)
@@ -202,7 +213,6 @@ namespace Zettai
             }
             yield break;
         }
-
         private static GameObject InstantiateAvatar(CacheItem item, string id, string owner, ref GameObject parent, out CVRPlayerEntity player)
         {
             GameObject instance;
@@ -252,7 +262,6 @@ namespace Zettai
             var propInstance = item.GetSanitizedProp(parent, item.Tags, isOwn, propVisibility);
             return propInstance;
         }
-
         private static void SetPropData(CVRSyncHelper.PropData propData, GameObject container, GameObject propInstance)
         {
             var component = propInstance.GetComponent<CVRSpawnable>();
@@ -263,7 +272,6 @@ namespace Zettai
             propData.Wrapper = container;
             CVRSyncHelper.ApplyPropValuesSpawn(propData);
         }
-
         private static CVRSyncHelper.PropData FindProp(string owner)
         {
             var props = CVRSyncHelper.Props;
@@ -274,7 +282,6 @@ namespace Zettai
             }
             return null;
         }
-
         private static bool FriendsWith(string owner)
         {
             if (string.IsNullOrEmpty(owner))
@@ -284,7 +291,6 @@ namespace Zettai
                     return true;
             return false;
         }
-
         private static void SetPlayerCapsuleSize(CVRPlayerEntity cvrplayerEntity, GameObject instance)
         {
             var playerCapsule = cvrplayerEntity.PlayerObject.GetComponent<CapsuleCollider>();
@@ -293,7 +299,6 @@ namespace Zettai
             playerCapsule.radius = playerCapsule.height / 6f;
             playerCapsule.center = new Vector3(0f, playerCapsule.height / 2f, 0f);
         }
-
         private static CVRPlayerEntity FindPlayer(string owner)
         {
             CVRPlayerEntity cvrplayerEntity = null;
@@ -309,8 +314,6 @@ namespace Zettai
             }
             return cvrplayerEntity;
         }
-
-       
         private static void RemoveInstance(GameObject go)
         {
             foreach (var item in cachedAssets)
@@ -345,7 +348,6 @@ namespace Zettai
                 RemoveInstance(go);
             }
         }
-
         [HarmonyPatch(typeof(CVRSpawnable), nameof(CVRSpawnable.OnDestroy))]
         class RemovePropPatch
         {
@@ -359,7 +361,6 @@ namespace Zettai
                 RemoveInstance(go);
             }
         }
-
         [HarmonyPatch(typeof(CVRAvatar))]
         class AvatarStartPatch
         {
@@ -367,23 +368,20 @@ namespace Zettai
             [HarmonyPatch(nameof(CVRAvatar.Start))]
             static bool InstantiateAvatarPrefix() => !enableMod.Value;
         }
-
-
-
         [HarmonyPatch(typeof(CVRObjectLoader))]
         class AddAvatarPatch
         {
             [HarmonyPrefix]
             [HarmonyPatch(nameof(CVRObjectLoader.InstantiateAvatar))]
             static bool InstantiateAvatarPrefix(IEnumerator __result, DownloadJob.ObjectType t, AssetManagement.AvatarTags tags,
-               string objectId, string instTarget, byte[] b)
+               string objectId, string instTarget, byte[] b, DownloadJob job)
             {
                 if (!enableMod.Value)
                     return true;
                 var _tags = new Tags(tags);
                 if (enableLog.Value)
-                    MelonLogger.Msg($"Instantiating avatar: '{objectId}', '{instTarget}', tags: {_tags}.");
-                MelonCoroutines.Start(LoadPatch(b, objectId, t, _tags, instTarget));
+                    MelonLogger.Msg($"Instantiating avatar: '{objectId}', '{job.ObjectFileId}', '{instTarget}', tags: {_tags}.");
+                MelonCoroutines.Start(LoadPatch(b, objectId, t, _tags, instTarget, job.ObjectFileId, job.ObjectHash));
                 return false;
             }
         }
@@ -403,14 +401,14 @@ namespace Zettai
             else
                 PlayerSetup.Instance.SetupAvatar(instance);
         }
-        private static IEnumerator LoadPatch(byte[] b, string id, DownloadJob.ObjectType type, Tags tags, string owner)
+        private static IEnumerator LoadPatch(byte[] b, string id, DownloadJob.ObjectType type, Tags tags, string owner, string objectFileId, string objectHash)
         {
             var assetPath = type == DownloadJob.ObjectType.Avatar ? AVATAR_PATH : PROP_PATH;
             GameObject parent = null;
             GameObject instance;
             if (b == null) 
             {
-                instance = InstantiateAvatar(cachedAssets[BLOCKED_ID], BLOCKED_ID, owner, ref parent, out CVRPlayerEntity player);
+                instance = InstantiateAvatar(cachedAssets[BlockedKey], BLOCKED_NAME, owner, ref parent, out CVRPlayerEntity player);
                 yield return null;
                 if (parent)
                     parent.SetActive(true);
@@ -449,9 +447,10 @@ namespace Zettai
                     shouldRelease = false;
                 }
                 
-                var name = GetName(gameObject, id);
-                var item = cachedAssets[id] = new CacheItem(id, type, gameObject, tags, name);
-                yield return InstantiateItem(item, type, id, owner, wait: false);
+                var name = GetName(gameObject, objectFileId);
+                var cacheKey = new CacheKey(id, objectFileId);
+                var item = cachedAssets[cacheKey] = new CacheItem(id, objectFileId, type, gameObject, tags, name);
+                yield return InstantiateItem(item, type,id, objectFileId, owner, wait: false);
             }
             finally
             {
@@ -464,7 +463,6 @@ namespace Zettai
             }
             yield break;
         }
-
         private static string GetName(GameObject gameObject, string defaultName)
         {
             var animator = gameObject.GetComponent<Animator>();
@@ -472,7 +470,6 @@ namespace Zettai
                 return defaultName;
             return animator.avatar.name.Replace("Avatar", "");
         }
-
         /// <summary>
         /// Clears the memory cache, keep currently loaded assets.
         /// </summary>
