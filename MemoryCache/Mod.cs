@@ -108,7 +108,6 @@ namespace Zettai
             GarbageCollector.CollectIncremental(GarbageCollector.incrementalTimeSliceNanoseconds);
             Resources.UnloadUnusedAssets();
         }
-
         private static void LimitRemovedCount(byte maxRemoveCount)
         {
             if (maxRemoveCount == 0 || idsToRemove.Count <= maxRemoveCount)
@@ -200,6 +199,8 @@ namespace Zettai
                     yield break;
                 }
                 yield return null;
+                if (player != null && player.LoadingAvatar != null)
+                    GameObject.Destroy(player.LoadingAvatar);
                 if (parent)
                     parent.SetActive(true);
                 SetupInstantiatedAvatar(instance, player);
@@ -246,14 +247,14 @@ namespace Zettai
                 MelonLogger.Error($"Cannot instantiate avatar: player not found. id: '{owner}'.");
                 return null;
             }
+            if (player.LoadingAvatar && player.LoadingAvatar.job != null)
+                player.LoadingAvatar.job.Status = DownloadJob.ExecutionStatus.Instantiating;
             parent = player.AvatarHolder;
             if (!parent)
             {
                 MelonLogger.Error($"Cannot instantiate avatar: avatar holder not found. id: '{owner}'.");
                 return null;
             }
-            if (player.LoadingAvatar != null)
-                GameObject.Destroy(player.LoadingAvatar);
             bool friendsWith = FriendsWith(owner);
             bool avatarVisibility = MetaPort.Instance.SelfModerationManager.GetAvatarVisibility(owner, id, out bool forceBlock, out bool forceShow);
             forceShow = forceShow && avatarVisibility;
@@ -338,6 +339,7 @@ namespace Zettai
                 EmptyCache();
             }
         }
+ 
         [HarmonyPatch(typeof(CVRAvatar), nameof(CVRAvatar.OnDestroy))]
         class RemoveAvatarPatch
         {
@@ -351,6 +353,7 @@ namespace Zettai
                 CacheItem.RemoveInstance(go);
             }
         }
+
         [HarmonyPatch(typeof(CVRSpawnable), nameof(CVRSpawnable.OnDestroy))]
         class RemovePropPatch
         {
@@ -364,6 +367,7 @@ namespace Zettai
                 CacheItem.RemoveInstance(go);
             }
         }
+ 
         [HarmonyPatch(typeof(CVRAvatar))]
         class AvatarStartPatch
         {
@@ -371,27 +375,31 @@ namespace Zettai
             [HarmonyPatch(nameof(CVRAvatar.Start))]
             static bool InstantiateAvatarPrefix() => !enableMod.Value;
         }
+
         [HarmonyPatch(typeof(CVRObjectLoader))]
         class AddPatch
         {
+            private static IEnumerator None() { yield break; }
             [HarmonyPrefix]
             [HarmonyPatch(nameof(CVRObjectLoader.InstantiateAvatar))]
-            static bool InstantiateAvatarPrefix(IEnumerator __result, DownloadJob.ObjectType t, AssetManagement.AvatarTags tags,
+            static bool InstantiateAvatarPrefix(ref IEnumerator __result, DownloadJob.ObjectType t, AssetManagement.AvatarTags tags,
                string objectId, string instTarget, byte[] b, DownloadJob job)
             {
                 if (!enableMod.Value)
                     return true;
                 StartInstantiate(t, new Tags(tags), objectId, instTarget, b, job);
+                __result = None();
                 return false;
             }
             [HarmonyPrefix]
             [HarmonyPatch(nameof(CVRObjectLoader.InstantiateProp))]
-            static bool InstantiatePropPrefix(IEnumerator __result, DownloadJob.ObjectType t, AssetManagement.PropTags tags,
+            static bool InstantiatePropPrefix(ref IEnumerator __result, DownloadJob.ObjectType t, AssetManagement.PropTags tags,
               string objectId, string instTarget, byte[] b, DownloadJob job)
             {
                 if (!enableMod.Value)
                     return true;
                 StartInstantiate(t, new Tags(tags), objectId, instTarget, b, job);
+                __result = None();
                 return false;
             }
 
@@ -399,6 +407,8 @@ namespace Zettai
             {
                 if (enableLog.Value)
                     MelonLogger.Msg($"Instantiating asset '{t}': '{objectId}', '{job.ObjectFileId}', '{instTarget}', tags: {tags}.");
+                if (job != null)
+                    job.Status = DownloadJob.ExecutionStatus.Instantiating;
                 fileIds[StringToLongHash(job.FileKey)] = job.ObjectFileId;
                 MelonCoroutines.Start(LoadPatch(b, objectId, t, tags, instTarget, job.ObjectFileId, StringToLongHash(job.FileKey)));
             }
