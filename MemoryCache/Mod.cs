@@ -204,6 +204,8 @@ namespace Zettai
                 if (parent)
                     parent.SetActive(true);
                 SetupInstantiatedAvatar(instance, player);
+                CVR_MenuManager.Instance.UpdateMenuPosition();
+                ViewManager.Instance.UpdateMenuPosition(true);
             }
             else if (type == DownloadJob.ObjectType.Prop)
             {
