@@ -92,13 +92,14 @@ namespace Zettai
                     avatarManager = __instance,
                     isFriend = FriendsWith(playerId),
                     isSelf = isSelf,
-                    collidersOnAll = collidersToData,
-                    collidersOnHandsAndFingers = collidersOnHandsFingers,
-                    collidersOnHands = collidersOnHands
+                    colliders = new Dictionary<byte, List<DynamicBoneCollider>>(),
                 };
-                AvatarDbData.avatars[__instance] = data;
+                data.colliders[2] = collidersToData;
+                data.colliders[1] = collidersOnHandsFingers;
+                data.colliders[0] = collidersOnHands;
+                avatars[__instance] = data;
                 colliders.Clear();
-                AvatarDbData.avatarColliders[__instance] = new HashSet<DbJobsAvatarManager>();
+                avatarColliders[__instance] = new HashSet<DbJobsAvatarManager>();
             }
             private static float GetColliderMaxSize(DynamicBoneCollider c)
             {
@@ -202,8 +203,8 @@ namespace Zettai
             {
                 if (!enableDbLagPatch.Value)
                     return;
-                AvatarDbData.avatars.Remove(__instance);
-                AvatarDbData.avatarColliders.Remove(__instance);
+                avatars.Remove(__instance);
+                avatarColliders.Remove(__instance);
             }
         }
         //[HarmonyPatch(typeof(CVRDynamicBoneManager), nameof(CVRDynamicBoneManager.UpdateComponents))]
@@ -215,7 +216,8 @@ namespace Zettai
             {
                 if (!enableDbLagPatch.Value)
                     return true;
-                foreach (var avatarEntry in AvatarDbData.avatars)
+                byte placement = (byte)CVRDynamicBoneManager._colliderPlacement;
+                foreach (var avatarEntry in avatars)
                 {
                     var avatar = avatarEntry.Key;
                     if (!addAvatarColliders.TryGetValue(avatar, out var set))
@@ -227,26 +229,13 @@ namespace Zettai
                     set.Clear();
                     if (CVRDynamicBoneManager._colliderRelationFromMe != CVRDynamicBoneManager.ColliderRelation.None) 
                     {
-                        foreach (var insideAvatarEntry in AvatarDbData.avatars)
+                        foreach (var insideAvatarEntry in avatars)
                         {
                             if (avatar == insideAvatarEntry.Key ||
                                 CVRDynamicBoneManager._colliderRelationFromMe == CVRDynamicBoneManager.ColliderRelation.Friends && !insideAvatarEntry.Value.isFriend)
                                 continue;
                             // can add
-                            switch (CVRDynamicBoneManager._colliderPlacement)
-                            {
-                                case CVRDynamicBoneManager.ColliderPlacement.Hands:
-                                    set.UnionWith(insideAvatarEntry.Value.collidersOnHands);
-                                    break;
-                                case CVRDynamicBoneManager.ColliderPlacement.HandAndFingers:
-                                    set.UnionWith(insideAvatarEntry.Value.collidersOnHandsAndFingers);
-                                    break;
-                                case CVRDynamicBoneManager.ColliderPlacement.Everything:
-                                    set.UnionWith(insideAvatarEntry.Value.collidersOnAll);
-                                    break;
-                                default:
-                                    break;
-                            }
+                            set.UnionWith(insideAvatarEntry.Value.colliders.ContainsKey(placement)? insideAvatarEntry.Value.colliders[placement] : empty);
                         }
                     }
                     // anything not added but present in previous set will remain in remove set
@@ -266,15 +255,14 @@ namespace Zettai
                 return false;
             }
         }
+        private static readonly List<DynamicBoneCollider> empty = new List<DynamicBoneCollider>();
+        private static readonly Dictionary<DbJobsAvatarManager, AvatarDbData> avatars = new Dictionary<DbJobsAvatarManager, AvatarDbData>();
+        private static readonly Dictionary<DbJobsAvatarManager, HashSet<DbJobsAvatarManager>> avatarColliders = new Dictionary<DbJobsAvatarManager, HashSet<DbJobsAvatarManager>>();
     }
     public class AvatarDbData
     {
-        public static readonly Dictionary<DbJobsAvatarManager, AvatarDbData> avatars = new Dictionary<DbJobsAvatarManager, AvatarDbData>();
-        public static readonly Dictionary<DbJobsAvatarManager, HashSet<DbJobsAvatarManager>> avatarColliders = new Dictionary<DbJobsAvatarManager, HashSet<DbJobsAvatarManager>>();
         public DbJobsAvatarManager avatarManager;
-        public List<DynamicBoneCollider> collidersOnAll;
-        public List<DynamicBoneCollider> collidersOnHandsAndFingers;
-        public List<DynamicBoneCollider> collidersOnHands;
+        public Dictionary<byte, List<DynamicBoneCollider>> colliders;
         public bool isSelf;
         public bool isFriend;
     }
