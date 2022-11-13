@@ -37,7 +37,8 @@ namespace Zettai
         private static readonly Dictionary<CacheKey, CacheItem> cachedAssets = new Dictionary<CacheKey, CacheItem>();
         private static readonly Dictionary<CacheKey, TimeSpan> idsToRemove = new Dictionary<CacheKey, TimeSpan>(10);
         private readonly static Dictionary<ulong, string> fileIds = new Dictionary<ulong, string>();
-        private static readonly HashSet<CacheKey> idsToRemoveStrings = new HashSet<CacheKey>();
+        private static readonly HashSet<CacheKey> idsToRemoveStrings = new HashSet<CacheKey>(); 
+        private static readonly List<DynamicBone> dbList = new List<DynamicBone>();
         private static readonly Guid BLOCKED_GUID = new Guid("E765F452-F372-4ECE-B362-1F48E64D2F7E");
         private static readonly CacheKey BlockedKey = new CacheKey(BLOCKED_GUID, 0, 0);
         const string BLOCKED_NAME = "Blocked";
@@ -194,18 +195,20 @@ namespace Zettai
                 if (!instance)
                 {
                     MelonLogger.Error($"Instantiating item {type} failed: ID: '{id}', owner: '{owner}'.");
-                    if (wait) 
+                    if (wait)
                         instantiateSemaphore.Release();
                     yield break;
                 }
-                yield return null;
                 if (player != null && player.LoadingAvatar != null)
                     GameObject.Destroy(player.LoadingAvatar);
-                if (parent)
-                    parent.SetActive(true);
+                ActivateInstance(item, parent, instance);
                 SetupInstantiatedAvatar(instance, player);
-                CVR_MenuManager.Instance.UpdateMenuPosition();
-                ViewManager.Instance.UpdateMenuPosition(true);
+                if (owner?[0] == '_')
+                {
+                    CVR_MenuManager.Instance.UpdateMenuPosition();
+                    ViewManager.Instance.UpdateMenuPosition(true);
+                }
+                yield return null;
             }
             else if (type == DownloadJob.ObjectType.Prop)
             {
@@ -218,8 +221,7 @@ namespace Zettai
                     yield break;
                 }
                 yield return null;
-                if (parent)
-                    parent.SetActive(true);
+                ActivateInstance(item, parent, instance);
                 SetPropData(propData, parent, instance);
             }
             if (wait)
@@ -228,6 +230,34 @@ namespace Zettai
                 instantiateSemaphore.Release();
             }
             yield break;
+        }
+        private static void ActivateInstance(CacheItem item, GameObject parent, GameObject instance)
+        {
+            if (!parent)
+                return;
+            var tr = instance.transform;
+            var ptr = parent.transform;
+            if (tr.parent != ptr)
+            {
+                tr.SetParent(ptr);
+                tr.SetPositionAndRotation(ptr.position, ptr.rotation);
+            }
+            instance.SetActive(item.WasEnabled);
+            parent.SetActive(true);
+            InitFirstDB(tr);
+        }
+        public static void InitFirstDB(Transform transform)
+        {
+            // really need to save initRootWorldToLocalMatrix in Awake and this won't be needed any more.
+            transform.GetComponentsInChildren(true, dbList);
+            foreach (var db in dbList)
+            {
+                if (!db || (!db.m_Root && (db.m_Roots == null || db.m_Roots.Count == 0)))
+                    continue;
+                db.FindOrAddAvatarManager();
+                db.DoSetup();
+                break;
+            }
         }
         private static GameObject InstantiateAvatar(CacheItem item, string id, string owner, ref GameObject parent, out CVRPlayerEntity player)
         {
@@ -412,7 +442,7 @@ namespace Zettai
                 if (job != null)
                     job.Status = DownloadJob.ExecutionStatus.Instantiating;
                 fileIds[StringToLongHash(job.FileKey)] = job.ObjectFileId;
-                MelonCoroutines.Start(LoadPatch(b, objectId, t, tags, instTarget, job.ObjectFileId, StringToLongHash(job.FileKey)));
+                MelonCoroutines.Start(LoadPatch(b, objectId, t, tags, instTarget, job.ObjectFileId, StringToLongHash(job.FileKey), job));
             }
         }
         private static void SetupInstantiatedAvatar(GameObject instance, CVRPlayerEntity player)
@@ -431,7 +461,7 @@ namespace Zettai
             else
                 PlayerSetup.Instance.SetupAvatar(instance);
         }
-        private static IEnumerator LoadPatch(byte[] b, string id, DownloadJob.ObjectType type, Tags tags, string owner, string objectFileId, ulong keyHash)
+        private static IEnumerator LoadPatch(byte[] b, string id, DownloadJob.ObjectType type, Tags tags, string owner, string objectFileId, ulong keyHash, DownloadJob job)
         {
             var assetPath = type == DownloadJob.ObjectType.Avatar ? AVATAR_PATH : PROP_PATH;
             GameObject parent = null;
@@ -443,6 +473,7 @@ namespace Zettai
                 if (parent)
                     parent.SetActive(true);
                 SetupInstantiatedAvatar(instance, player);
+                job.Status = DownloadJob.ExecutionStatus.Error;
                 yield break;
             }
             {
@@ -465,7 +496,7 @@ namespace Zettai
                 yield return bundle;
                 if (bundle == null || !bundle.assetBundle)
                     yield break;
-                if (type == DownloadJob.ObjectType.Avatar && !CVRPlayerManager.Instance.TryGetConnected(owner) && owner != "_PLAYERLOCAL")
+                if (type == DownloadJob.ObjectType.Avatar && owner != "_PLAYERLOCAL" && !CVRPlayerManager.Instance.TryGetConnected(owner))
                     yield break;
                 AssetBundleRequest asyncAsset;
                 yield return asyncAsset = bundle.assetBundle.LoadAssetAsync(assetPath, typeof(GameObject));
@@ -491,6 +522,7 @@ namespace Zettai
                 if (shouldRelease)
                     bundleLoadSemaphore.Release();
             }
+            job.Status = DownloadJob.ExecutionStatus.JobDone;
             yield break;
         }
         private static string GetName(GameObject gameObject, string defaultName)

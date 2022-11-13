@@ -14,6 +14,11 @@ namespace Zettai
             AssetId = id;
             ObjectType = type;
             OriginalItem = item;
+            item.transform.localPosition = Vector3.zero;
+            item.transform.localRotation = Quaternion.identity;
+            WasEnabled = item.activeSelf;
+            item.SetActive(false);
+            NormalizeQuaternionAll(item.transform);
             Name = name;
             Tags = tags;
             FileId = objectFileId;
@@ -24,6 +29,11 @@ namespace Zettai
             AssetId = id;
             ObjectType = type;
             OriginalItem = item;
+            item.transform.localPosition = Vector3.zero;
+            item.transform.localRotation = Quaternion.identity;
+            WasEnabled = item.activeSelf;
+            item.SetActive(false);
+            NormalizeQuaternionAll(item.transform);
             ReadOnly = readOnly;
             Name = name;
             Tags = tags;
@@ -33,6 +43,7 @@ namespace Zettai
         private readonly GameObject OriginalItem;
         private readonly HashSet<GameObject> instances = new HashSet<GameObject>();
         private DateTime lastRefRemoved;
+        public bool WasEnabled { get; }
         public bool ReadOnly { get; }
         public string AssetId { get; }
         public string FileId { get; }
@@ -51,8 +62,6 @@ namespace Zettai
             ClearTransformChildren(parent);
             parent.SetActive(false);
             var instance = GameObject.Instantiate(OriginalItem, parent.transform);
-            instance.transform.localPosition = Vector3.zero;
-            instance.transform.localRotation = Quaternion.identity;
             if (!ReadOnly)
             {
                 if (MemoryCache.enableOwnSanitizer.Value)
@@ -72,8 +81,6 @@ namespace Zettai
                 SetAudioMixer(instance);
                 AddInstance(instance);
             }
-            NormalizeQuaternionAll(parent.transform);
-            //parent.SetActive(true);  // done later to split cpu load to multiple frames
             return instance;
         }
         static readonly List<Transform> transforms = new List<Transform>();
@@ -81,27 +88,22 @@ namespace Zettai
         {
             transforms.Clear();
             transform.GetComponentsInChildren(true, transforms);
-            for (int i = 0; i < transforms.Count; i++)
-            {
-                transforms[i].rotation.Normalize();
-            }
+            foreach (Transform tr in transforms)
+                tr.rotation.Normalize();
             transforms.Clear();
         }
+
         public GameObject GetSanitizedProp(GameObject parent, Tags tags, bool isOwnOrFriend, bool? visibility)
         {
             ClearTransformChildren(parent);
-            parent.SetActive(false);
             var instance = GameObject.Instantiate(OriginalItem, parent.transform);
-            instance.transform.localPosition = Vector3.zero;
-            instance.transform.localRotation = Quaternion.identity;;
             bool forceBlock = visibility == false;
             bool forceShow = visibility == true;
             CVRTools.CleanPropGameObjectNetwork(instance, isOwnOrFriend, tags.PropTags, false, forceShow, forceBlock, false);
-            NormalizeQuaternionAll(parent.transform);
-            //parent.SetActive(true);
             AddInstance(instance);
             return instance;
         }
+       
         private void AddInstance(GameObject item)
         {
             instances.Add(item);
