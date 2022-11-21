@@ -361,17 +361,6 @@ namespace Zettai
             return cvrplayerEntity;
         }
 
-        [HarmonyPatch(typeof(RootLogic), nameof(RootLogic.SpawnOnWorldInstance))]
-        class SpawnOnWorldInstancePatch
-        {
-            static void Postfix()
-            {
-                if (!enableMod.Value)
-                    return;
-                EmptyCache();
-            }
-        }
- 
         [HarmonyPatch(typeof(CVRAvatar), nameof(CVRAvatar.OnDestroy))]
         class RemoveAvatarPatch
         {
@@ -531,7 +520,7 @@ namespace Zettai
             if (!animator || !animator.isHuman || !animator.avatar)
                 return defaultName;
             return animator.avatar.name.Replace("Avatar", "");
-        }
+        } 
         /// <summary>
         /// Clears the memory cache, keep currently loaded assets.
         /// </summary>
