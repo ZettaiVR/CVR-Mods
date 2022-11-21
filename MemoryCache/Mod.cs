@@ -380,7 +380,7 @@ namespace Zettai
         {
             static void Postfix(DynamicBone __instance)
             {
-                if (!enableMod.Value)
+                if (!enableMod.Value || !__instance || !__instance.m_Root)
                     return;
                 __instance.initRootWorldToLocalMatrix = new Unity.Mathematics.float3x3(__instance.m_Root.worldToLocalMatrix);
             }
