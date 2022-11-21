@@ -39,12 +39,12 @@ namespace Zettai
         private readonly static Dictionary<ulong, string> fileIds = new Dictionary<ulong, string>();
         private static readonly HashSet<CacheKey> idsToRemoveStrings = new HashSet<CacheKey>(); 
         private static readonly List<DynamicBone> dbList = new List<DynamicBone>();
-        private static readonly Guid BLOCKED_GUID = new Guid("E765F452-F372-4ECE-B362-1F48E64D2F7E");
+        private static readonly Guid BLOCKED_GUID = new Guid("B10CED00-F372-4ECE-B362-1F48E64D2F7E");
         private static readonly CacheKey BlockedKey = new CacheKey(BLOCKED_GUID, 0, 0);
-        const string BLOCKED_NAME = "Blocked";
-        const string BLOCKED_VERSION = "000000000000";
-        const string PROP_PATH = "assets/abi.cck/resources/cache/_cvrspawnable.prefab";
-        const string AVATAR_PATH = "assets/abi.cck/resources/cache/_cvravatar.prefab";
+        const string _BLOCKED_NAME = "Blocked";
+        const string _BLOCKED_VERSION = "000000000000";
+        const string _PROP_PATH = "assets/abi.cck/resources/cache/_cvrspawnable.prefab";
+        const string _AVATAR_PATH = "assets/abi.cck/resources/cache/_cvravatar.prefab";
         public override void OnApplicationStart()
         {
             var category = MelonPreferences.CreateCategory("Zettai");
@@ -70,7 +70,7 @@ namespace Zettai
             try
             {
                 cachedAssets.Remove(BlockedKey);
-                cachedAssets[BlockedKey] = new CacheItem(BLOCKED_NAME, BLOCKED_VERSION, DownloadJob.ObjectType.Avatar, MetaPort.Instance?.blockedAvatarPrefab, new Tags(), BLOCKED_NAME, true);
+                cachedAssets[BlockedKey] = new CacheItem(_BLOCKED_NAME, _BLOCKED_VERSION, DownloadJob.ObjectType.Avatar, MetaPort.Instance?.blockedAvatarPrefab, new Tags(), _BLOCKED_NAME, true);
             }
             catch (Exception e)
             {
@@ -258,6 +258,7 @@ namespace Zettai
                 db.DoSetup();
                 break;
             }
+            dbList.Clear();
         }
         private static GameObject InstantiateAvatar(CacheItem item, string id, string owner, ref GameObject parent, out CVRPlayerEntity player)
         {
@@ -374,7 +375,34 @@ namespace Zettai
                 CacheItem.RemoveInstance(go);
             }
         }
-
+        [HarmonyPatch(typeof(DynamicBone), nameof(DynamicBone.Awake))]
+        class DynamicBoneAwakePatch
+        {
+            static void Postfix(DynamicBone __instance)
+            {
+                if (!enableMod.Value)
+                    return;
+                __instance.initRootWorldToLocalMatrix = new Unity.Mathematics.float3x3(__instance.m_Root.worldToLocalMatrix);
+            }
+        }
+        [HarmonyPatch(typeof(DynamicBone), nameof(DynamicBone.SetupParticles))]
+        class DynamicBoneSetupParticlesPatch
+        {
+            private static Unity.Mathematics.float3x3 initRootLTWM;
+            static bool Prefix(DynamicBone __instance)
+            {
+                if (!enableMod.Value)
+                    return true;
+                initRootLTWM = __instance.initRootWorldToLocalMatrix;
+                return true;
+            }
+            static void Postfix(DynamicBone __instance)
+            {
+                if (!enableMod.Value)
+                    return;
+                __instance.initRootWorldToLocalMatrix = initRootLTWM;
+            }
+        }
         [HarmonyPatch(typeof(CVRSpawnable), nameof(CVRSpawnable.OnDestroy))]
         class RemovePropPatch
         {
@@ -452,12 +480,12 @@ namespace Zettai
         }
         private static IEnumerator LoadPatch(byte[] b, string id, DownloadJob.ObjectType type, Tags tags, string owner, string objectFileId, ulong keyHash, DownloadJob job)
         {
-            var assetPath = type == DownloadJob.ObjectType.Avatar ? AVATAR_PATH : PROP_PATH;
+            var assetPath = type == DownloadJob.ObjectType.Avatar ? _AVATAR_PATH : _PROP_PATH;
             GameObject parent = null;
             GameObject instance;
             if (b == null && type == DownloadJob.ObjectType.Avatar) 
             {
-                instance = InstantiateAvatar(cachedAssets[BlockedKey], BLOCKED_NAME, owner, ref parent, out CVRPlayerEntity player);
+                instance = InstantiateAvatar(cachedAssets[BlockedKey], _BLOCKED_NAME, owner, ref parent, out CVRPlayerEntity player);
                 yield return null;
                 if (parent)
                     parent.SetActive(true);
@@ -487,8 +515,10 @@ namespace Zettai
                     yield break;
                 if (type == DownloadJob.ObjectType.Avatar && owner != "_PLAYERLOCAL" && !CVRPlayerManager.Instance.TryGetConnected(owner))
                     yield break;
+                if (!GetAssetName(assetPath, bundle.assetBundle.GetAllAssetNames(), out string assetName))
+                    yield break;
                 AssetBundleRequest asyncAsset;
-                yield return asyncAsset = bundle.assetBundle.LoadAssetAsync(assetPath, typeof(GameObject));
+                yield return asyncAsset = bundle.assetBundle.LoadAssetAsync(assetName, typeof(GameObject));
                 var gameObject = (GameObject)asyncAsset.asset;
                 if ((bundle?.assetBundle) != null && bundle != null)
                 {
@@ -496,11 +526,11 @@ namespace Zettai
                     bundleLoadSemaphore.Release();
                     shouldRelease = false;
                 }
-                
+
                 var name = GetName(gameObject, objectFileId);
                 var cacheKey = new CacheKey(id, objectFileId, keyHash);
                 var item = cachedAssets[cacheKey] = new CacheItem(id, objectFileId, type, gameObject, tags, name);
-                yield return InstantiateItem(item, type,id, objectFileId, owner, wait: false);
+                yield return InstantiateItem(item, type, id, objectFileId, owner, wait: false);
             }
             finally
             {
@@ -514,6 +544,27 @@ namespace Zettai
             job.Status = DownloadJob.ExecutionStatus.JobDone;
             yield break;
         }
+
+        private static bool GetAssetName(string expectedName, string[] allAssetNames, out string assetName)
+        {
+            if (allAssetNames == null || allAssetNames.Length == 0)
+            {
+                MelonLogger.Warning($"Bundle has no assets in it!");
+                assetName = null;
+                return false;
+            }
+            if (allAssetNames.Length > 1)
+            {
+                MelonLogger.Warning($"Bundle has multiple assets in it! Names: { string.Join(" ,", allAssetNames) }. Only the first one will be used!");
+            }
+            else if (!string.Equals(allAssetNames[0], expectedName))
+            {
+                MelonLogger.Warning($"Bundle's asset name is unexpected! { allAssetNames[0] }. It will be loaded anyway, but this would not work normally!");
+            }
+            assetName = allAssetNames[0];
+            return true;
+        }
+
         private static string GetName(GameObject gameObject, string defaultName)
         {
             var animator = gameObject.GetComponent<Animator>();

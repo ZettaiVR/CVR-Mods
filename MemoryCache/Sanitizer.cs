@@ -351,7 +351,7 @@ namespace Zettai
                     continue;
             }
             if ((audioSourceCount > 0 || particleCount > 0) && MemoryCache.enableLog.Value)
-                MelonLoader.MelonLogger.Msg($"Avatar on '{cvrAvatar.transform.root.name}': audioSourceCount: '{audioSourceCount}', particleCount: '{particleCount}'");
+                MelonLoader.MelonLogger.Msg($"Avatar on '{cvrAvatar.transform.root.name}': audioSourceCount: '{audioSourceCount}', particleCount: '{particleCount}' \r\n");
         }
 
         private static void SetLayer(int layer, Component component) => component.gameObject.layer = layer;
@@ -874,7 +874,6 @@ namespace Zettai
         }
         private static readonly IReadOnlyList<Type> forgottenTypesAvatar = new Type[]
         {
-            typeof(MagicaPhysicsManager),
             typeof(CVRTexturePropertyParser),
             typeof(AudioSource),
             typeof(CVRMovementParent),
