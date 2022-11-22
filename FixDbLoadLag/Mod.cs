@@ -133,6 +133,21 @@ namespace Zettai
                     }
                 }
             }
+
+            private static readonly HumanBodyBones[] fingerBones = new HumanBodyBones[]
+            {
+                HumanBodyBones.RightIndexProximal,
+                HumanBodyBones.LeftIndexProximal,
+                HumanBodyBones.RightThumbProximal,
+                HumanBodyBones.LeftThumbProximal,
+                HumanBodyBones.RightRingProximal,
+                HumanBodyBones.LeftRingProximal,
+                HumanBodyBones.RightMiddleProximal,
+                HumanBodyBones.LeftMiddleProximal,
+                HumanBodyBones.RightLittleProximal,
+                HumanBodyBones.LeftLittleProximal,
+            };
+
             private static void GetHandColliders(GameObject gameObject, List<DynamicBoneCollider> collidersOnHands, List<DynamicBoneCollider> collidersOnHandsFingers)
             {
                 var animator = gameObject.GetComponent<Animator>();
@@ -141,59 +156,29 @@ namespace Zettai
                 var leftHand = animator.GetBoneTransform(HumanBodyBones.LeftHand);
                 var rightHand = animator.GetBoneTransform(HumanBodyBones.RightHand);
 
-                if (!leftHand || !rightHand)
+                if (!leftHand && !rightHand)
                     return;
-                var r1 = animator.GetBoneTransform(HumanBodyBones.RightIndexProximal);
-                var l1 = animator.GetBoneTransform(HumanBodyBones.LeftIndexProximal);
-                var r2 = animator.GetBoneTransform(HumanBodyBones.RightThumbProximal);
-                var l2 = animator.GetBoneTransform(HumanBodyBones.LeftThumbProximal);
-                var r3 = animator.GetBoneTransform(HumanBodyBones.RightRingProximal);
-                var l3 = animator.GetBoneTransform(HumanBodyBones.LeftRingProximal);
-                var r4 = animator.GetBoneTransform(HumanBodyBones.RightMiddleProximal);
-                var l4 = animator.GetBoneTransform(HumanBodyBones.LeftMiddleProximal);
-                var r5 = animator.GetBoneTransform(HumanBodyBones.RightLittleProximal);
-                var l5 = animator.GetBoneTransform(HumanBodyBones.LeftLittleProximal);
-
 
                 colliders.Clear();
-                leftHand.GetComponentsInChildren(true, colliders);
+                if (leftHand)
+                    leftHand.GetComponentsInChildren(true, colliders);
                 collidersOnHandsFingers.AddRange(colliders);
                 colliders.Clear();
-                rightHand.GetComponentsInChildren(true, colliders);
+                if (rightHand)
+                    rightHand.GetComponentsInChildren(true, colliders);
                 collidersOnHandsFingers.AddRange(colliders);
                 collidersOnHandsFingers.RemoveAll(a => a.m_Bound == DynamicBoneColliderBase.Bound.Inside || GetColliderMaxSize(a) > CVRDynamicBoneManager._maxColliderSize);
                 collidersOnHands.AddRange(collidersOnHandsFingers);
                 colliders.Clear();
-                r1?.GetComponentsInChildren(true, colliders);
-                collidersOnHands.RemoveAll(a => colliders.Contains(a));
-                colliders.Clear();
-                l1?.GetComponentsInChildren(true, colliders);
-                collidersOnHands.RemoveAll(a => colliders.Contains(a));
-                colliders.Clear();
-                r2?.GetComponentsInChildren(true, colliders);
-                collidersOnHands.RemoveAll(a => colliders.Contains(a));
-                colliders.Clear();
-                l2?.GetComponentsInChildren(true, colliders);
-                collidersOnHands.RemoveAll(a => colliders.Contains(a));
-                colliders.Clear();
-                r3?.GetComponentsInChildren(true, colliders);
-                collidersOnHands.RemoveAll(a => colliders.Contains(a));
-                colliders.Clear();
-                l3?.GetComponentsInChildren(true, colliders);
-                collidersOnHands.RemoveAll(a => colliders.Contains(a));
-                colliders.Clear();
-                r4?.GetComponentsInChildren(true, colliders);
-                collidersOnHands.RemoveAll(a => colliders.Contains(a));
-                colliders.Clear();
-                l4?.GetComponentsInChildren(true, colliders);
-                collidersOnHands.RemoveAll(a => colliders.Contains(a));
-                colliders.Clear();
-                r5?.GetComponentsInChildren(true, colliders);
-                collidersOnHands.RemoveAll(a => colliders.Contains(a));
-                colliders.Clear();
-                l5?.GetComponentsInChildren(true, colliders);
-                collidersOnHands.RemoveAll(a => colliders.Contains(a));
-                colliders.Clear();
+                for (int i = 0; i < fingerBones.Length; i++)
+                {
+                    var tr = animator.GetBoneTransform(fingerBones[i]);
+                    if (!tr)
+                        continue;
+                    tr.GetComponentsInChildren(true, colliders);
+                    collidersOnHands.RemoveAll(a => colliders.Contains(a));
+                    colliders.Clear();
+                }
             }
         }
         [HarmonyPatch(typeof(DbJobsAvatarManager), nameof(DbJobsAvatarManager.OnDestroy))]
