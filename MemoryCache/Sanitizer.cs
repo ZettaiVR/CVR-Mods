@@ -294,7 +294,8 @@ namespace Zettai
         private static void SetGameObjectLayerFromList(int layer) 
         {
             foreach (var item in transforms)
-                item.gameObject.layer = layer;
+                if (item)
+                    item.gameObject.layer = layer;
             transforms.Clear();
         }
         private static void SetGameObjectLayerRecursive(GameObject avatar, int layer)
