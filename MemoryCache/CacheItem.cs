@@ -8,7 +8,7 @@ namespace Zettai
 {
     public class CacheItem
     {
-        public CacheItem(string id, string objectFileId, DownloadJob.ObjectType type, GameObject item, Tags tags, string name)
+        public CacheItem(string id, string FileId, DownloadTask.ObjectType type, GameObject item, Tags tags, string name)
         {
             AddTime = DateTime.UtcNow;
             AssetId = id;
@@ -21,9 +21,9 @@ namespace Zettai
             NormalizeQuaternionAll(item.transform);
             Name = name;
             Tags = tags;
-            FileId = objectFileId;
+            this.FileId = FileId;
         }
-        internal CacheItem(string id, string objectFileId, DownloadJob.ObjectType type, GameObject item, Tags tags, string name, bool readOnly)
+        internal CacheItem(string id, string FileId, DownloadTask.ObjectType type, GameObject item, Tags tags, string name, bool readOnly)
         {
             AddTime = DateTime.UtcNow;
             AssetId = id;
@@ -37,7 +37,7 @@ namespace Zettai
             ReadOnly = readOnly;
             Name = name;
             Tags = tags;
-            FileId = objectFileId;
+            this.FileId = FileId;
         }
         public override string ToString() => string.IsNullOrEmpty(Name) ? AssetId : Name;
         private readonly GameObject OriginalItem;
@@ -48,7 +48,7 @@ namespace Zettai
         public string AssetId { get; }
         public string FileId { get; }
         public string Name { get; }
-        public DownloadJob.ObjectType ObjectType { get; }
+        public DownloadTask.ObjectType ObjectType { get; }
         public Tags Tags { get; }
         public DateTime AddTime { get; }
         public int InstanceCount => instances.Count;
@@ -57,30 +57,31 @@ namespace Zettai
             age = now - lastRefRemoved;
             return !ReadOnly && InstanceCount == 0 && age > maxAge;
         }
-        public GameObject GetSanitizedAvatar(GameObject parent, Tags tags, bool isLocal, bool friendsWith = false, bool forceShow = false, bool forceBlock = false) 
+        public GameObject GetSanitizedAvatar(GameObject parent, Tags tags, string assetId, bool isLocal, bool friendsWith = false, bool isVisible = false, bool forceShow = false, bool forceBlock = false)
         {
             ClearTransformChildren(parent);
             parent.SetActive(false);
             var instance = GameObject.Instantiate(OriginalItem, parent.transform);
-            if (!ReadOnly)
+            if (ReadOnly)
             {
-                if (MemoryCache.enableOwnSanitizer.Value)
-                {
-                    if (isLocal)
-                        Sanitizer.CleanAvatarGameObject(instance, tags);
-                    else
-                        Sanitizer.CleanAvatarGameObjectNetwork(instance, friendsWith, tags, forceShow, forceBlock);
-                }
-                else 
-                {
-                    if (isLocal)
-                        CVRTools.CleanAvatarGameObject(instance, tags.AvatarTags);
-                    else
-                        CVRTools.CleanAvatarGameObjectNetwork(instance, friendsWith, tags.AvatarTags, forceShow, forceBlock);
-                }
-                SetAudioMixer(instance);
-                AddInstance(instance);
+                return instance;
             }
+            if (MemoryCache.enableOwnSanitizer.Value)
+            {
+                if (isLocal)
+                    Sanitizer.CleanAvatarGameObject(instance, tags, assetId);
+                else
+                    Sanitizer.CleanAvatarGameObjectNetwork(instance, friendsWith, assetId, tags, forceShow, forceBlock);
+            }
+            else
+            {
+                if (isLocal)
+                    CVRTools.CleanAvatarGameObject(assetId, instance, tags.AvatarTags, isVisible, forceShow, forceBlock);
+                else
+                    CVRTools.CleanAvatarGameObjectNetwork(assetId, instance, friendsWith, tags.AvatarTags, isVisible, forceShow, forceBlock);
+            }
+            SetAudioMixer(instance);
+            AddInstance(instance);
             return instance;
         }
         static readonly List<Transform> transforms = new List<Transform>();
@@ -93,13 +94,13 @@ namespace Zettai
             transforms.Clear();
         }
 
-        public GameObject GetSanitizedProp(GameObject parent, Tags tags, bool isOwnOrFriend, bool? visibility)
+        public GameObject GetSanitizedProp(GameObject parent, Tags tags, string assetId, bool isOwnOrFriend, bool? visibility)
         {
             ClearTransformChildren(parent);
             var instance = GameObject.Instantiate(OriginalItem, parent.transform);
             bool forceBlock = visibility == false;
             bool forceShow = visibility == true;
-            CVRTools.CleanPropGameObjectNetwork(instance, isOwnOrFriend, tags.PropTags, false, forceShow, forceBlock, false);
+            CVRTools.CleanPropGameObjectNetwork(assetId, instance, isOwnOrFriend, tags.PropTags, false, forceShow, forceBlock, false);
             AddInstance(instance);
             return instance;
         }
@@ -130,7 +131,7 @@ namespace Zettai
             if (!ReadOnly)
                 GameObject.DestroyImmediate(OriginalItem, true);
         }
-        public bool IsMatch(DownloadJob.ObjectType type, string id, string fileID) => 
+        public bool IsMatch(DownloadTask.ObjectType type, string id, string fileID) => 
             type == ObjectType &&
             string.Equals(id, AssetId) &&
             (string.IsNullOrEmpty(fileID) || string.Equals(fileID, FileId));

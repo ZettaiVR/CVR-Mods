@@ -16,15 +16,15 @@ namespace Zettai
 {
     public static class Sanitizer
     {
-        public static void CleanAvatarGameObject(GameObject avatar, Tags tags)
+        public static void CleanAvatarGameObject(GameObject avatar, Tags tags, string assetId)
         {
-            CleanAvatarGameObject(avatar, 8, true, tags, false, false, false, false);
+            CleanAvatarGameObject(avatar, assetId, 8, true, tags, false, false, false, false);
             PlayerSetup.Instance.avatarTags = tags.AvatarTags;
         }
 
-        public static void CleanAvatarGameObjectNetwork(GameObject avatar, bool isFriend, Tags tags, bool forceShow, bool forceBlock)
+        public static void CleanAvatarGameObjectNetwork(GameObject avatar, bool isFriend, string assetId, Tags tags, bool forceShow, bool forceBlock)
         {
-            CleanAvatarGameObject(avatar, 10, isFriend, tags, false, forceShow, forceBlock, false);
+            CleanAvatarGameObject(avatar, assetId, 10, isFriend, tags, false, forceShow, forceBlock, false);
         }
 
         public struct Permissions
@@ -244,14 +244,14 @@ namespace Zettai
 			}
 		}
 
-        public static void CleanAvatarGameObject(GameObject avatar, int layer, bool isFriend, Tags tags, bool disableAudio = false, 
+        public static void CleanAvatarGameObject(GameObject avatar, string assetId, int layer, bool isFriend, Tags tags, bool disableAudio = false, 
             bool forceShow = false, bool forceBlock = false, bool secondRun = false)
         {
             PlayerDescriptor playerDescriptor = avatar.GetComponentInParent<PlayerDescriptor>();
             CVRAvatar cvrAvatar = avatar.GetComponent<CVRAvatar>();
             Permissions p = new Permissions(tags, disableAudio, isFriend, forceShow);
 
-            ApplyAdvancedTags(cvrAvatar, ref p);
+            ApplyAdvancedTags(cvrAvatar, assetId, ref p);
             bool hide = p.Hide;
             if (forceShow)
                 hide = false;
@@ -269,12 +269,18 @@ namespace Zettai
             {
                 hips = animator.GetBoneTransform(HumanBodyBones.Hips);
             }
-            ProcessComponents(layer, cvrAvatar, p, hide, p.Audio, playerlocal, hips);
+            ProcessComponents(assetId, layer, cvrAvatar, p, hide, p.Audio, playerlocal, hips);
             if (p.CustomShaders)
             {
                 var renderers = from comp in components where comp is Renderer select (comp as Renderer);
                 foreach (var renderer in renderers)
-                    ReplaceShaders(renderer);
+                {
+                    Material[] materials = renderer.materials;
+                    for (int i = 0; i < materials.Length; i++)
+                    {
+                        ReplaceShaders(materials[i]);
+                    }
+                }
             }
             bool ExperimentalAdvancedSafetyFilterFriends = MetaPort.Instance.settings.GetSettingsBool("ExperimentalAdvancedSafetyFilterFriends");
             if (!forceShow && ((isFriend && ExperimentalAdvancedSafetyFilterFriends) || !isFriend))
@@ -315,7 +321,7 @@ namespace Zettai
             transforms.Clear();
             rectTransforms.Clear();
         }
-        private static void ProcessComponents(int layer, CVRAvatar cvrAvatar, Permissions p, bool hide, bool removeAudio, bool local, Transform hips)
+        private static void ProcessComponents(string assetId, int layer, CVRAvatar cvrAvatar, Permissions p, bool hide, bool removeAudio, bool local, Transform hips)
         {
             ulong particleCount = 0;
             int audioSourceCount = 0;
@@ -336,12 +342,12 @@ namespace Zettai
                 }
                 if (component is Animator animator)
                 {
-                    SanitizeAnimationEvents(animator);
+                    SanitizeAnimationEvents(assetId, animator);
                 }
                 if (component is VRIK vrik)
                 {
-                    SanitizeUnityEvents(vrik.solver.locomotion.onLeftFootstep);
-                    SanitizeUnityEvents(vrik.solver.locomotion.onRightFootstep);
+                    SanitizeUnityEvents(assetId, vrik.solver.locomotion.onLeftFootstep);
+                    SanitizeUnityEvents(assetId, vrik.solver.locomotion.onRightFootstep);
                 }
                 if (hide)
                     continue;
@@ -592,13 +598,13 @@ namespace Zettai
 
         private static void ApplyBlockedAvatar(GameObject avatar, out CVRBlockedAvatarController cvrBlockedAvatarController) => cvrBlockedAvatarController = (CVRBlockedAvatarController)avatar.GetComponent(typeof(CVRBlockedAvatarController));
 
-        private static void TagHandledByAdvancedTagging(CVRAvatar avatar, int i) => avatar.ApplyFilterByTag((CVRAvatarAdvancedTaggingEntry.Tags)(1 << i));
-        private static void ApplyAdvancedTags(CVRAvatar cvrAvatar, ref Permissions p)
+        private static void TagHandledByAdvancedTagging(CVRAvatar avatar, string assetId, int i) => avatar.ApplyFilterByTag(assetId, (CVRAvatarAdvancedTaggingEntry.Tags)(1 << i));
+        private static void ApplyAdvancedTags(CVRAvatar cvrAvatar, string assetId, ref Permissions p)
         {
             for (int i = 0; i < 9; i++)
                 if (p.GetValue(i))
                 {
-                    TagHandledByAdvancedTagging(cvrAvatar, i);
+                    TagHandledByAdvancedTagging(cvrAvatar, assetId, i);
                     p.SetValue(i, false);
                 }
         }
