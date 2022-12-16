@@ -12,19 +12,22 @@ using static ABI_RC.Core.CVRTools;
 using RootMotion.FinalIK;
 using MagicaCloth;
 using System.Runtime.CompilerServices;
+using System.Collections;
+using UnityEngine.Events;
+
 namespace Zettai
 {
     public static class Sanitizer
     {
         public static void CleanAvatarGameObject(GameObject avatar, Tags tags, string assetId)
         {
-            CleanAvatarGameObject(avatar, assetId, 8, true, tags, false, false, false, false);
+            CleanAvatarGameObject(avatar, assetId, 8, true, tags, false, false, false);
             PlayerSetup.Instance.avatarTags = tags.AvatarTags;
         }
 
         public static void CleanAvatarGameObjectNetwork(GameObject avatar, bool isFriend, string assetId, Tags tags, bool forceShow, bool forceBlock)
         {
-            CleanAvatarGameObject(avatar, assetId, 10, isFriend, tags, false, forceShow, forceBlock, false);
+            CleanAvatarGameObject(avatar, assetId, 10, isFriend, tags, false, forceShow, forceBlock);
         }
 
         public struct Permissions
@@ -245,7 +248,7 @@ namespace Zettai
 		}
 
         public static void CleanAvatarGameObject(GameObject avatar, string assetId, int layer, bool isFriend, Tags tags, bool disableAudio = false, 
-            bool forceShow = false, bool forceBlock = false, bool secondRun = false)
+            bool forceShow = false, bool forceBlock = false)
         {
             PlayerDescriptor playerDescriptor = avatar.GetComponentInParent<PlayerDescriptor>();
             CVRAvatar cvrAvatar = avatar.GetComponent<CVRAvatar>();
@@ -260,7 +263,7 @@ namespace Zettai
             if (!MetaPort.Instance.matureContentAllowed && (tags.Nudity || tags.Gore))
                 hide = true;
 
-            SanitizeGameObject(avatar, hide ? AssetType.HiddenAvatar : AssetType.Avatar);
+            SanitizeGameObject(avatar, hide ? AssetType.HiddenAvatar : AssetType.Avatar, out var allowedTypes);
             bool playerlocal = playerDescriptor != null && !string.IsNullOrEmpty(playerDescriptor.ownerId) && playerDescriptor.ownerId[0] == '_';
             ApplyBlockedAvatar(avatar, out CVRBlockedAvatarController cvrBlockedAvatarController);
             Animator animator = avatar.GetComponent<Animator>();
@@ -269,40 +272,90 @@ namespace Zettai
             {
                 hips = animator.GetBoneTransform(HumanBodyBones.Hips);
             }
-            ProcessComponents(assetId, layer, cvrAvatar, p, hide, p.Audio, playerlocal, hips);
+            ProcessComponents(allowedTypes, assetId, layer, cvrAvatar, p, hide, p.Audio, playerlocal, hips);
             if (p.CustomShaders)
             {
                 var renderers = from comp in components where comp is Renderer select (comp as Renderer);
-                foreach (var renderer in renderers)
-                {
-                    Material[] materials = renderer.materials;
-                    for (int i = 0; i < materials.Length; i++)
-                    {
-                        ReplaceShaders(materials[i]);
-                    }
-                }
+                ReplaceShaders(renderers);
             }
             bool ExperimentalAdvancedSafetyFilterFriends = MetaPort.Instance.settings.GetSettingsBool("ExperimentalAdvancedSafetyFilterFriends");
+
             if (!forceShow && ((isFriend && ExperimentalAdvancedSafetyFilterFriends) || !isFriend))
             {
-                CleanGameObject(avatar.gameObject);
+                CVRTools.CleanGameObject(avatar.gameObject);
             }
             if (hide)
                 HideAvatar(avatar, cvrBlockedAvatarController, animator, cvrAvatar);
             SetGameObjectLayerFromList(layer);
+            transforms.Clear();
             if (layer == 10)
             {
-                PlaceHapticsTriggersAndPointers(avatar);
+                CVRTools.PlaceHapticsTriggersAndPointers(avatar);
             }
-            GenerateDefaultPointer(avatar, layer);
-            AvatarCleaned.Invoke(avatar);
+            CVRTools.GenerateDefaultPointer(avatar, layer);
+            CVRTools.AvatarCleaned.Invoke(avatar);
         }
+
+        private static void ReplaceShaders(IEnumerable<Renderer> renderers)
+        {
+            foreach (var renderer in renderers)
+            {
+                Material[] materials = renderer.materials;
+                for (int i = 0; i < materials.Length; i++)
+                {
+                    ReplaceShader(materials[i]);
+                }
+            }
+        }
+
+        private static void ReplaceShader(Material material)
+        {
+            var original = material.shader;
+            material.shader = GetReplacementShader(original);
+        }
+        private static Shader GetReplacementShader(Shader shader)
+        {
+            if (ReplacementShaders.TryGetValue(shader, out var replaceShader))
+            {
+                return replaceShader;
+            }
+            replaceShader = GetShaderByName("Standard");
+            var name = shader.name;
+            foreach (var item in ReplacementShaderNames)
+            {
+                if (name.Contains(item.Key))
+                {
+                    replaceShader = GetShaderByName(item.Value);
+                    break;
+                }
+            }
+            ReplacementShaders[shader] = replaceShader;
+            return replaceShader;
+        }
+
+        private static Shader GetShaderByName(string name) 
+        {
+            if (!ShaderNamesToObjects.TryGetValue(name, out var shader)) 
+            {
+                ShaderNamesToObjects[name] = shader = Shader.Find(name);
+            }
+            return shader;
+        }
+       
+        private static readonly Dictionary<Shader, Shader> ReplacementShaders = new Dictionary<Shader, Shader>();
+
+        private static readonly Dictionary<string, Shader> ShaderNamesToObjects = new Dictionary<string, Shader>();
+
+        private static readonly Dictionary<string, string> ReplacementShaderNames = new Dictionary<string, string>() 
+        {
+            //{ "","" },
+        };
+
         private static void SetGameObjectLayerFromList(int layer) 
         {
             foreach (var item in transforms)
-                if (item)
+                if (item && item.gameObject)
                     item.gameObject.layer = layer;
-            transforms.Clear();
         }
         private static void SetGameObjectLayerRecursive(GameObject avatar, int layer)
         {
@@ -321,7 +374,7 @@ namespace Zettai
             transforms.Clear();
             rectTransforms.Clear();
         }
-        private static void ProcessComponents(string assetId, int layer, CVRAvatar cvrAvatar, Permissions p, bool hide, bool removeAudio, bool local, Transform hips)
+        private static void ProcessComponents(HashSet<Type> allowedTypes, string assetId, int layer, CVRAvatar cvrAvatar, Permissions p, bool hide, bool removeAudio, bool local, Transform hips)
         {
             ulong particleCount = 0;
             int audioSourceCount = 0;
@@ -342,12 +395,12 @@ namespace Zettai
                 }
                 if (component is Animator animator)
                 {
-                    SanitizeAnimationEvents(assetId, animator);
+                    SanitizeAnimationEvents(animator);
                 }
                 if (component is VRIK vrik)
                 {
-                    SanitizeUnityEvents(assetId, vrik.solver.locomotion.onLeftFootstep);
-                    SanitizeUnityEvents(assetId, vrik.solver.locomotion.onRightFootstep);
+                    SanitizeUnityEvents(vrik.solver.locomotion.onLeftFootstep, allowedTypes);
+                    SanitizeUnityEvents(vrik.solver.locomotion.onRightFootstep, allowedTypes);
                 }
                 if (hide)
                     continue;
@@ -360,7 +413,63 @@ namespace Zettai
             if ((audioSourceCount > 0 || particleCount > 0) && MemoryCache.enableLog.Value)
                 MelonLoader.MelonLogger.Msg($"Avatar on '{cvrAvatar.transform.root.name}': audioSourceCount: '{audioSourceCount}', particleCount: '{particleCount}' \r\n");
         }
+        private static void SanitizeUnityEvents(UnityEventBase unityEvent, HashSet<Type> allowedTypes)
+        {
+            int persistentEventCount = unityEvent.GetPersistentEventCount();
+            if (persistentEventCount <= 0 || allowedTypes == null)
+                return;
+            for (int i = 0; i < persistentEventCount; i++)
+            {
+                var persistentTarget = unityEvent.GetPersistentTarget(i);
+                if (persistentTarget == null)
+                    continue;
+                Type type = persistentTarget.GetType();
+                if (!allowedTypes.Contains(type))
+                {
+                    //unityEvent.SetPersistentListenerState(i, UnityEventCallState.Off);
+                    unityEvent.RemoveAllListeners();
+                    break;
+                }
+            }
+        }
+        private static void SanitizeAnimationEvents(Animator animator)
+        {
 
+            if (!animator || !animator.runtimeAnimatorController)
+            {
+                return;
+            }
+            var clips = animator.runtimeAnimatorController.animationClips;
+            foreach (var animationClip in clips)
+            {
+                if (animationClip == null)
+                {
+                    continue;
+                }
+                var events = animationClip.events;
+                if (events == null || events.Length == 0)
+                {
+                    continue;
+                }
+                bool bad = false;
+                for (int j = 0; j < events.Length; j++)
+                {
+                    AnimationEvent animationEvent = events[j];
+                    if (animationEvent == null)
+                    {
+                        continue;
+                    }
+                    string name = animationEvent.functionName;
+                    if (string.IsNullOrEmpty(name) || !AllowedAnimationEventFunctionNames.Contains(name))
+                    {
+                        bad = true;
+                        break;
+                    }
+                }
+                if (bad)
+                    animationClip.events = Array.Empty<AnimationEvent>();
+            }
+        }
         private static void SetLayer(int layer, Component component) => component.gameObject.layer = layer;
 
         private static bool CheckTypes(Type type, Component component, int layer, Permissions p, bool removeAudio, ref int audioSourceCount) 
@@ -632,13 +741,13 @@ namespace Zettai
         /// <param name="assetType">The type of asset to sanitize that determines the allowed components.</param>
         /// <param name="removeFromAllowedList">Component types to remove from the default allowed components lists for the asset type.</param>
         /// <returns>The time taken in milliseconds.</returns>
-        public static uint SanitizeGameObject(GameObject gameObject, AssetType assetType, List<Type> removeFromAllowedList = null)
+        public static uint SanitizeGameObject(GameObject gameObject, AssetType assetType, out HashSet<Type> allowedTypes, List<Type> removeFromAllowedList = null)
         {
             stopWatch.Stop();
             stopWatch.Reset();
             stopWatch.Start();
 
-            var allowedTypes = GetAllowedTypesHashSet(assetType);
+            allowedTypes = GetAllowedTypesHashSet(assetType);
             if (removeFromAllowedList != null)
             {
                 foreach (var item in removeFromAllowedList)

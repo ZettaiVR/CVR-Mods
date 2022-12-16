@@ -27,6 +27,17 @@ namespace Zettai
                     return true;
             return false;
         }
+        [HarmonyPatch(typeof(CVRDynamicBoneManager), nameof(CVRDynamicBoneManager.RemoveCollider), new System.Type[] {typeof(DynamicBoneColliderBase) })]
+        class RemoveColliderPatch
+        {
+            static bool Prefix()
+            {
+                if (!enableDbLagPatch.Value)
+                    return true;
+               
+                return false;
+            }
+        }
         [HarmonyPatch(typeof(CVRDynamicBoneManager), nameof(CVRDynamicBoneManager.UpdateComponents))]
         class UpdateDbComponentsPatch
         {
@@ -230,12 +241,26 @@ namespace Zettai
                 foreach (var item in removeAvatarColliders)
                 {
                     foreach (var collider in item.Value)
-                        item.Key.RemoveCollider(collider);
+                    {
+                        try
+                        {
+                            item.Key.RemoveCollider(collider);
+                        }
+                        catch (System.Exception) { }
+                    }
                     item.Value.Clear();
                 }
                 foreach (var item in addAvatarColliders)
                     foreach (var collider in item.Value)
-                        item.Key.AddCollider(collider);
+                        if (item.Key.initDone)
+                        {
+                            try
+                            {
+                                item.Key.AddCollider(collider);
+                            }
+                            catch (System.Exception) { }
+                        }
+                   
 
                 return false;
             }

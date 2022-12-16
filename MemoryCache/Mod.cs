@@ -187,11 +187,24 @@ namespace Zettai
             }
             if (enableLog.Value)
                 MelonLogger.Msg($"Instantiating item {type}: ID: '{id}', fileId: {fileId}, owner: '{owner}'.");
-            GameObject parent = null;
+            GameObject parent;
             GameObject instance;
+            List<GameObject> instances = new List<GameObject>(1);
             if (type == DownloadTask.ObjectType.Avatar)
             {
-                instance = InstantiateAvatar(item, id, owner, ref parent, out CVRPlayerEntity player);
+                bool local = owner == "_PLAYERLOCAL" || string.Equals(owner, MetaPort.Instance.ownerId);
+                CVRPlayerEntity player = null;
+                if (local)
+                {
+                    parent = PlayerSetup.Instance.PlayerAvatarParent;
+                }
+                else
+                {
+                    player = FindPlayer(owner);
+                    parent = player?.AvatarHolder;
+                }
+                yield return InstantiateAvatar(item, instances, id, owner, parent, player, local);
+                instance = instances.Count == 0 ? null : instances[0];
                 if (!instance)
                 {
                     MelonLogger.Error($"Instantiating item {type} failed: ID: '{id}', owner: '{owner}'.");
@@ -203,7 +216,7 @@ namespace Zettai
                     GameObject.Destroy(player.LoadingAvatar);
                 ActivateInstance(item, parent, instance);
                 SetupInstantiatedAvatar(instance, player);
-                if (owner?[0] == '_')
+                if (local)
                 {
                     CVR_MenuManager.Instance.UpdateMenuPosition();
                     ViewManager.Instance.UpdateMenuPosition(true);
@@ -212,10 +225,14 @@ namespace Zettai
             }
             else if (type == DownloadTask.ObjectType.Prop)
             {
-                instance = InstantiateProp(item, owner, ref parent, out var propData);
+                var propData = FindProp(owner);
+                parent = new GameObject(owner);
+                //MelonLoader.MelonLogger.Msg($"item: {item != null}, parent: {parent}, owner: {owner}, propData: {propData != null}, {propData?.InstanceId}");
+                yield return InstantiateProp(item, instances, owner, parent, propData);
+                instance = instances.Count == 0 ? null : instances[0];
                 if (!instance)
                 {
-                    MelonLogger.Error($"Instantiating item {type} failed: ID: '{id}', owner: '{owner}'.");
+                    MelonLogger.Error($"Instantiating item {type} failed: ID: '{id}', owner: '{owner}, instances.Count: {instances.Count}'.");
                     if (wait) 
                         instantiateSemaphore.Release();
                     yield break;
@@ -229,90 +246,119 @@ namespace Zettai
                 yield return null;
                 instantiateSemaphore.Release();
             }
-            yield break;
         }
         private static void ActivateInstance(CacheItem item, GameObject parent, GameObject instance)
         {
-            if (!parent)
+            if (!parent || !instance)
                 return;
-            var tr = instance.transform;
-            var ptr = parent.transform;
-            if (tr.parent != ptr)
+            try
             {
-                tr.SetParent(ptr);
-                tr.SetPositionAndRotation(ptr.position, ptr.rotation);
+                var instanceTransform = instance.transform;
+                var parentTransform = parent.transform;
+                if (instanceTransform.parent != parentTransform)
+                {
+                    instanceTransform.SetParent(parentTransform);
+                    instanceTransform.SetPositionAndRotation(parentTransform.position, parentTransform.rotation);
+                }
+                instance.SetActive(item.WasEnabled);
+                parent.SetActive(true);
             }
-            instance.SetActive(item.WasEnabled);
-            parent.SetActive(true);
-            InitFirstDB(tr);
-        }
-        public static void InitFirstDB(Transform transform)
-        {
-            // really need to save initRootWorldToLocalMatrix in Awake and this won't be needed any more.
-            transform.GetComponentsInChildren(true, dbList);
-            foreach (var db in dbList)
+            catch (Exception e)
             {
-                if (!db || (!db.m_Root && (db.m_Roots == null || db.m_Roots.Count == 0)))
-                    continue;
-                db.FindOrAddAvatarManager();
-                db.DoSetup();
-                break;
+                MelonLogger.Error(e);
             }
-            dbList.Clear();
         }
-        private static GameObject InstantiateAvatar(CacheItem item, string assetId, string owner, ref GameObject parent, out CVRPlayerEntity player)
+        private static IEnumerator InstantiateAvatar(CacheItem item, List<GameObject> instances, string assetId, string owner, GameObject parent, CVRPlayerEntity player, bool isLocal)
         {
+            var oldGameObjectCount = parent.transform.childCount;
+            var oldGameObjects = new GameObject[oldGameObjectCount];
+            for (int i = 0; i < oldGameObjectCount; i++)
+            {
+                oldGameObjects[i] = parent.transform.GetChild(i).gameObject;
+            }
+
+            GameObject tempParent = new GameObject();
+            tempParent.SetActive(false);
+            tempParent.transform.SetParent(parent.transform);
             GameObject instance;
-            if (owner == "_PLAYERLOCAL" || string.Equals(owner, MetaPort.Instance.ownerId))
+            if (isLocal)
             {
                 if (enableLog.Value)
                     MelonLogger.Msg($"Local avatar: owner: '{owner}', MetaPort.Instance.ownerId: {MetaPort.Instance.ownerId}.");
+                yield return item.GetSanitizedAvatar(tempParent, instances, item.Tags, assetId, true);
+                if (instances.Count == 0 || !instances[0])
+                {
+                    MelonLogger.Error($"Instantiating avatar failed: ID: '{assetId}', owner: local.");
+                    yield break;
+                }
+                yield return null;
+                yield return new WaitForEndOfFrame();
                 MetaPort.Instance.currentAvatarGuid = assetId;
-                parent = PlayerSetup.Instance.PlayerAvatarParent;
                 PlayerSetup.Instance.ClearAvatar();
-                instance = item.GetSanitizedAvatar(parent, item.Tags, assetId, true);
-                player = null;
-                return instance;
+                instance = instances[0];
+                ActivateNewGameObject(instance, parent, oldGameObjects, tempParent);
+                yield break;
             }
-            player = FindPlayer(owner);
             if (player == null || !player.AvatarHolder)
             {
                 MelonLogger.Error($"Cannot instantiate avatar: player not found. id: '{owner}'.");
-                return null;
+                yield break;
             }
             if (player.LoadingAvatar && player.LoadingAvatar.task != null)
                 player.LoadingAvatar.task.Status = DownloadTask.ExecutionStatus.Complete;
-            parent = player.AvatarHolder;
             if (!parent)
             {
                 MelonLogger.Error($"Cannot instantiate avatar: avatar holder not found. id: '{owner}'.");
-                return null;
+                yield break;
             }
             bool friendsWith = FriendsWith(owner);
             bool avatarVisibility = MetaPort.Instance.SelfModerationManager.GetAvatarVisibility(owner, assetId, out bool forceBlock, out bool forceShow);
             forceShow = forceShow && avatarVisibility;
             forceBlock = forceBlock && !avatarVisibility;
-            instance = item.GetSanitizedAvatar(parent, item.Tags, assetId, avatarVisibility, friendsWith, forceShow, forceBlock);
+
+
+            yield return item.GetSanitizedAvatar(tempParent, instances, item.Tags, assetId, avatarVisibility, friendsWith, forceShow, forceBlock);
+            if (instances.Count == 0 || !instances[0])
+            {
+                MelonLogger.Error($"Instantiating avatar failed: ID: '{assetId}', owner: '{owner}'.");
+                yield break;
+            }
+            yield return null;
+            yield return new WaitForEndOfFrame();
+            //delete current avatar, disable parent, move new to proper parent
+            instance = instances[0];
+            ActivateNewGameObject(instance, parent, oldGameObjects, tempParent);
             SetPlayerCapsuleSize(player, instance);
-            return instance;
+
         }
-        private static GameObject InstantiateProp(CacheItem item, string target, ref GameObject parent, out CVRSyncHelper.PropData propData)
+
+        private static void ActivateNewGameObject(GameObject instance, GameObject parent, GameObject[] oldGameObjects, GameObject tempParent)
         {
-            propData = FindProp(target);
+            parent.SetActive(false);
+            CacheItem.ClearTransformChildren(oldGameObjects);
+            Transform parentTransform = parent.transform;
+            instance.transform.SetParent(parentTransform);
+            instance.transform.SetPositionAndRotation(parentTransform.position, parentTransform.rotation);
+            GameObject.DestroyImmediate(tempParent);
+        }
+
+        private static IEnumerator InstantiateProp(CacheItem item, List<GameObject> instances, string target, GameObject parent, CVRSyncHelper.PropData propData)
+        {
             if (propData == null || item == null)
-                return null;
-            parent = new GameObject(target);
+                yield break;
             parent.transform.SetPositionAndRotation(new Vector3(propData.PositionX, propData.PositionY, propData.PositionZ),
                 Quaternion.Euler(propData.RotationX, propData.RotationY, propData.RotationZ));
-            bool? propVisibility = MetaPort.Instance.SelfModerationManager.GetPropVisibility(propData.SpawnedBy, target, out bool wasForceHidden, out bool wasForceShown);
+            bool propVisibility = MetaPort.Instance.SelfModerationManager.GetPropVisibility(propData.SpawnedBy, target, out bool wasForceHidden, out bool wasForceShown);
             bool isOwn = propData.SpawnedBy == MetaPort.Instance.ownerId || FriendsWith(propData.SpawnedBy);
-            var propInstance = item.GetSanitizedProp(parent, item.Tags, item.AssetId, isOwn, propVisibility);
-            return propInstance;
+            yield return item.GetSanitizedProp(parent, instances, item.Tags, item.AssetId, isOwn, propVisibility, wasForceHidden, wasForceShown);
+
         }
         private static void SetPropData(CVRSyncHelper.PropData propData, GameObject container, GameObject propInstance)
         {
+            if (!propInstance)
+                return;
             var component = propInstance.GetComponent<CVRSpawnable>();
-            if (component == null)
+            if (component == null || component.transform == null)
                 return;
             component.transform.localPosition = new Vector3(0f, component.spawnHeight, 0f);
             propData.Spawnable = component;
@@ -373,34 +419,6 @@ namespace Zettai
                 if (enableLog.Value)
                     MelonLogger.Msg($"Deleting {go.name}, {cachedAssets.Count} cached assets.");
                 CacheItem.RemoveInstance(go);
-            }
-        }
-        [HarmonyPatch(typeof(DynamicBone), nameof(DynamicBone.Awake))]
-        class DynamicBoneAwakePatch
-        {
-            static void Postfix(DynamicBone __instance)
-            {
-                if (!enableMod.Value || !__instance || !__instance.m_Root)
-                    return;
-                __instance.initRootWorldToLocalMatrix = new Unity.Mathematics.float3x3(__instance.m_Root.worldToLocalMatrix);
-            }
-        }
-        [HarmonyPatch(typeof(DynamicBone), nameof(DynamicBone.SetupParticles))]
-        class DynamicBoneSetupParticlesPatch
-        {
-            private static Unity.Mathematics.float3x3 initRootLTWM;
-            static bool Prefix(DynamicBone __instance)
-            {
-                if (!enableMod.Value)
-                    return true;
-                initRootLTWM = __instance.initRootWorldToLocalMatrix;
-                return true;
-            }
-            static void Postfix(DynamicBone __instance)
-            {
-                if (!enableMod.Value)
-                    return;
-                __instance.initRootWorldToLocalMatrix = initRootLTWM;
             }
         }
         [HarmonyPatch(typeof(CVRSpawnable), nameof(CVRSpawnable.OnDestroy))]
@@ -481,30 +499,25 @@ namespace Zettai
         private static IEnumerator LoadPatch(byte[] b, string id, DownloadTask.ObjectType type, Tags tags, string owner, string FileId, ulong keyHash, DownloadTask job)
         {
             var assetPath = type == DownloadTask.ObjectType.Avatar ? _AVATAR_PATH : _PROP_PATH;
-            GameObject parent = null;
-            GameObject instance;
             if (b == null && type == DownloadTask.ObjectType.Avatar) 
             {
-                instance = InstantiateAvatar(cachedAssets[BlockedKey], _BLOCKED_NAME, owner, ref parent, out CVRPlayerEntity player);
-                yield return null;
-                if (parent)
-                    parent.SetActive(true);
-                SetupInstantiatedAvatar(instance, player);
+                var item = cachedAssets[BlockedKey];
+                yield return InstantiateItem(item, type, item.AssetId, item.FileId, owner);
                 job.Status = DownloadTask.ExecutionStatus.Failed;
                 yield break;
             }
+            
+            var sw = new System.Diagnostics.Stopwatch();
+            sw.Start();
+            var timeout = loadTimeoutSecondsEntry.Value;
+            while (!bundleLoadSemaphore.Wait(0))
             {
-                var sw = new System.Diagnostics.Stopwatch();
-                sw.Start();
-                var timeout = loadTimeoutSecondsEntry.Value;
-                while (!bundleLoadSemaphore.Wait(0))
-                {
-                    if (sw.Elapsed.TotalSeconds < timeout)
-                        yield return null;
-                    else
-                        yield break;
-                }
+                if (sw.Elapsed.TotalSeconds < timeout)
+                    yield return null;
+                else
+                    yield break;
             }
+            
             bool shouldRelease = true;
             AssetBundleCreateRequest bundle = null;
             try

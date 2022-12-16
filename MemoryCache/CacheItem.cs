@@ -1,6 +1,7 @@
 ﻿using ABI_RC.Core;
 using ABI_RC.Core.IO;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -57,15 +58,20 @@ namespace Zettai
             age = now - lastRefRemoved;
             return !ReadOnly && InstanceCount == 0 && age > maxAge;
         }
-        public GameObject GetSanitizedAvatar(GameObject parent, Tags tags, string assetId, bool isLocal, bool friendsWith = false, bool isVisible = false, bool forceShow = false, bool forceBlock = false)
+        public IEnumerator GetSanitizedAvatar(GameObject parent, List<GameObject> instances, Tags tags, string assetId, 
+            bool isLocal, bool friendsWith = false, bool isVisible = false,
+            bool forceShow = false, bool forceBlock = false)
         {
-            ClearTransformChildren(parent);
-            parent.SetActive(false);
-            var instance = GameObject.Instantiate(OriginalItem, parent.transform);
+            if (instances == null)
+                yield break;
+            yield return new WaitForEndOfFrame();
+            GameObject instance = GameObject.Instantiate(OriginalItem, parent.transform);
+            instances.Add(instance);
             if (ReadOnly)
             {
-                return instance;
+                yield return instance;
             }
+            yield return new WaitForEndOfFrame();
             if (MemoryCache.enableOwnSanitizer.Value)
             {
                 if (isLocal)
@@ -82,7 +88,6 @@ namespace Zettai
             }
             SetAudioMixer(instance);
             AddInstance(instance);
-            return instance;
         }
         static readonly List<Transform> transforms = new List<Transform>();
         private void NormalizeQuaternionAll(Transform transform)
@@ -94,15 +99,14 @@ namespace Zettai
             transforms.Clear();
         }
 
-        public GameObject GetSanitizedProp(GameObject parent, Tags tags, string assetId, bool isOwnOrFriend, bool? visibility)
+        public IEnumerator GetSanitizedProp(GameObject parent, List<GameObject> instances, Tags tags, string assetId, bool isOwnOrFriend, bool visibility, bool wasForceHidden, bool wasForceShown)
         {
             ClearTransformChildren(parent);
             var instance = GameObject.Instantiate(OriginalItem, parent.transform);
-            bool forceBlock = visibility == false;
-            bool forceShow = visibility == true;
-            CVRTools.CleanPropGameObjectNetwork(assetId, instance, isOwnOrFriend, tags.PropTags, false, forceShow, forceBlock, false);
+            yield return null;
+            CVRTools.CleanPropGameObjectNetwork(assetId, instance, isOwnOrFriend, tags.PropTags, visibility, wasForceShown, wasForceHidden, false);
             AddInstance(instance);
-            return instance;
+            instances.Add(instance);
         }
        
         private void AddInstance(GameObject item)
@@ -140,6 +144,12 @@ namespace Zettai
             if (playerAvatarParent.transform.childCount > 0)
                 foreach (Transform tr in playerAvatarParent.transform)
                     UnityEngine.Object.DestroyImmediate(tr.gameObject, true);
+        }
+        internal static void ClearTransformChildren(GameObject[] playerAvatarParent)
+        {
+            if (playerAvatarParent != null && playerAvatarParent.Length> 0)
+                foreach (GameObject tr in playerAvatarParent)
+                    UnityEngine.Object.DestroyImmediate(tr, true);
         }
         private static void SetAudioMixer(GameObject instance)
         {
