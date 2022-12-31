@@ -82,9 +82,9 @@ namespace Zettai
             else
             {
                 if (isLocal)
-                    CVRTools.CleanAvatarGameObject(assetId, instance, tags.AvatarTags, isVisible, forceShow, forceBlock);
+                    ABI_RC.Core.Util.AssetFiltering.AssetFilter.FilterAvatar(assetId, instance, tags.AvatarTags, 8, true, isVisible, forceShow, forceBlock);
                 else
-                    CVRTools.CleanAvatarGameObjectNetwork(assetId, instance, friendsWith, tags.AvatarTags, isVisible, forceShow, forceBlock);
+                    ABI_RC.Core.Util.AssetFiltering.AssetFilter.FilterAvatar(assetId, instance, tags.AvatarTags, 10, friendsWith, isVisible, forceShow, forceBlock);
             }
             SetAudioMixer(instance);
             AddInstance(instance);
@@ -104,7 +104,7 @@ namespace Zettai
             ClearTransformChildren(parent);
             var instance = GameObject.Instantiate(OriginalItem, parent.transform);
             yield return null;
-            CVRTools.CleanPropGameObjectNetwork(assetId, instance, isOwnOrFriend, tags.PropTags, visibility, wasForceShown, wasForceHidden, false);
+            ABI_RC.Core.Util.AssetFiltering.AssetFilter.FilterProp(assetId, instance, tags.PropTags, isOwnOrFriend, visibility, wasForceHidden, wasForceShown);
             AddInstance(instance);
             instances.Add(instance);
         }

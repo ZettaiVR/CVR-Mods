@@ -8,6 +8,7 @@ using ABI_RC.Core.InteractionSystem;
 using ABI_RC.Core.Player;
 using ABI_RC.Core.Savior;
 using ABI_RC.Core;
+using ABI_RC.Core.Util.AssetFiltering;
 using static ABI_RC.Core.CVRTools;
 using RootMotion.FinalIK;
 using MagicaCloth;
@@ -293,7 +294,7 @@ namespace Zettai
                 CVRTools.PlaceHapticsTriggersAndPointers(avatar);
             }
             CVRTools.GenerateDefaultPointer(avatar, layer);
-            CVRTools.AvatarCleaned.Invoke(avatar);
+            ABI_RC.Core.Util.AssetFiltering.AssetFilter.OnAvatarCleaned.Invoke(avatar);
         }
 
         private static void ReplaceShaders(IEnumerable<Renderer> renderers)
@@ -460,7 +461,7 @@ namespace Zettai
                         continue;
                     }
                     string name = animationEvent.functionName;
-                    if (string.IsNullOrEmpty(name) || !AllowedAnimationEventFunctionNames.Contains(name))
+                    if (string.IsNullOrEmpty(name) || !SharedFilter._allowedAnimationEventFunctionNames.Contains(name))
                     {
                         bad = true;
                         break;
@@ -530,25 +531,25 @@ namespace Zettai
         }
         private static bool CheckLists(Type type, Component component, int layer, CVRAvatar cvrAvatar, Permissions p, bool local, Transform hips, ref ulong particleCount) 
         {
-            if (dynamicBoneColliderComponents.Contains(type))
+            if (SharedFilter._allowedDynamicsColliderComponents.Contains(type))
             {
                 if (p.DynamicBoneCollision)
                     RemoveComponent(component, type);
                 return true;
             }
-            if (localComponents.Contains(type))
+            if (SharedFilter._localComponentWhitelist.Contains(type))
             {
                 if (layer != 8)
                     RemoveComponent(component, type);
                 return true;
             }
-            if (lightComponents.Contains(type))
+            if (type == typeof(Light))
             {
                 if (p.Lights)
                     RemoveComponent(component, type);
                 return true; 
             }
-            if (colliderComponents.Contains(type))
+            if (SharedFilter._colliderComponents.Contains(type))
             {
                 if (p.Collider)
                 {
@@ -581,7 +582,7 @@ namespace Zettai
                     return true;
                 }
             }
-            if (particleComponents.Contains(type))
+            if (SharedFilter._particleComponents.Contains(type))
             {
                 if (p.ParticleSystems)
                 {
@@ -606,11 +607,11 @@ namespace Zettai
                 }
                 return true;
             }
-            if (rootComponents.Contains(type))
+            if (SharedFilter._rootComponents.Contains(type))
             {
                 return true;
             }
-            if (rendererComponets.Contains(type))
+            if (SharedFilter._rendererComponents.Contains(type))
             {
                 if (local && Hologram)
                 {
@@ -631,7 +632,7 @@ namespace Zettai
                     }
                 }
             }
-            if (dynamicBoneComponents.Contains(type))
+            if (SharedFilter._allowedDynamicsComponents.Contains(type))
             {
                 if (p.DynamicBone)
                 {
@@ -900,25 +901,27 @@ namespace Zettai
             {
                 case AssetType.Avatar:
                     {
-                        AddListToSet(componentWhiteList, set);
+                        AddListToSet(SharedFilter._avatarWhitelist, set);
+                        AddListToSet(SharedFilter._localComponentWhitelist, set);
                         break;
                     }
                 case AssetType.HiddenAvatar:
                     {
-                        AddListToSet(rootComponents, set);
+                        AddListToSet(SharedFilter._rootComponents, set);
                         return set;
                     }
                 case AssetType.Scene:
                     {
                         AddListToSet(forgottenTypesWorld, set);
-                        AddListToSet(componentWhiteList, set);
-                        AddListToSet(propWhitelist, set);
+                        AddListToSet(SharedFilter._avatarWhitelist, set);
+                        AddListToSet(SharedFilter._localComponentWhitelist, set);
                         break;
                     }
                 case AssetType.Prop:
                     {
                         AddListToSet(forgottenTypesProps, set);
-                        AddListToSet(propWhitelist, set);
+                        AddListToSet(SharedFilter._localComponentWhitelist, set);
+                        AddListToSet(SharedFilter._spawnableWhitelist, set);
                         break;
                     }
                 case AssetType.Other:
@@ -927,14 +930,14 @@ namespace Zettai
                     break;
             }
             AddListToSet(forgottenTypesAvatar, set);
-            AddListToSet(rootComponents, set);
-            AddListToSet(particleComponents, set);
-            AddListToSet(dynamicBoneComponents, set);
-            AddListToSet(dynamicBoneColliderComponents, set);
-            AddListToSet(localComponents, set);
-            AddListToSet(colliderComponents, set);
-            AddListToSet(lightComponents, set);
-            AddListToSet(rendererComponets, set);
+            AddListToSet(SharedFilter._rootComponents, set);
+            AddListToSet(SharedFilter._particleComponents, set);
+            AddListToSet(SharedFilter._rendererComponents, set);
+            AddListToSet(SharedFilter._colliderComponents, set);
+            AddListToSet(SharedFilter._allowedDynamicsComponents, set);
+            AddListToSet(SharedFilter._allowedDynamicsColliderComponents, set);
+            AddListToSet(SharedFilter._allowedEventComponents, set);
+            AddListToSet(lightComponent, set);
             return set;
         }
         private static void AddListToSet(IEnumerable<Type> whitelist, HashSet<Type> set)
@@ -988,14 +991,16 @@ namespace Zettai
             if (allAssemblies == null)
                 allAssemblies = AppDomain.CurrentDomain.GetAssemblies();
         }
+        private static readonly IReadOnlyList<Type> lightComponent = new Type[]
+        {
+            typeof(Light)
+        };
+
         private static readonly IReadOnlyList<Type> forgottenTypesAvatar = new Type[]
         {
             typeof(CVRTexturePropertyParser),
             typeof(AudioSource),
             typeof(CVRMovementParent),
-            typeof(CVRParameterStream),
-            typeof(CVRAdvancedAvatarSettingsTrigger),
-            typeof(CVRAdvancedAvatarSettingsPointer),
             typeof(Animation),
         }; 
         private static readonly IReadOnlyList<Type> forgottenTypesWorld = new Type[]
