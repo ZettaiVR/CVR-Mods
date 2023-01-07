@@ -59,7 +59,7 @@ namespace Zettai
             return !ReadOnly && InstanceCount == 0 && age > maxAge;
         }
         public IEnumerator GetSanitizedAvatar(GameObject parent, List<GameObject> instances, Tags tags, string assetId, 
-            bool isLocal, bool friendsWith = false, bool isVisible = false,
+            bool isLocal, bool friendsWith = false, bool isVisible = true,
             bool forceShow = false, bool forceBlock = false)
         {
             if (instances == null)
@@ -77,14 +77,13 @@ namespace Zettai
                 if (isLocal)
                     Sanitizer.CleanAvatarGameObject(instance, tags, assetId);
                 else
-                    Sanitizer.CleanAvatarGameObjectNetwork(instance, friendsWith, assetId, tags, forceShow, forceBlock);
+                    Sanitizer.CleanAvatarGameObjectNetwork(instance, friendsWith, assetId, tags, forceShow, forceBlock, isVisible);
             }
             else
             {
-                if (isLocal)
-                    ABI_RC.Core.Util.AssetFiltering.AssetFilter.FilterAvatar(assetId, instance, tags.AvatarTags, 8, true, isVisible, forceShow, forceBlock);
-                else
-                    ABI_RC.Core.Util.AssetFiltering.AssetFilter.FilterAvatar(assetId, instance, tags.AvatarTags, 10, friendsWith, isVisible, forceShow, forceBlock);
+                if (MemoryCache.enableLog.Value)
+                    MelonLoader.MelonLogger.Msg($"assetId {assetId}, instance {instance}, layer {(isLocal ? 8: 10)}, isFriend {isLocal || friendsWith}, isVisible {isVisible}, forceShow {forceShow}, forceBlock {forceBlock}");
+                ABI_RC.Core.Util.AssetFiltering.AssetFilter.FilterAvatar(assetId, instance, tags.AvatarTags, isLocal ? 8 : 10, isLocal || friendsWith, isVisible, forceShow, forceBlock);
             }
             SetAudioMixer(instance);
             AddInstance(instance);
@@ -125,8 +124,7 @@ namespace Zettai
         }
         private void RemoveInstanceInternal(GameObject item)
         {
-            var removed = instances.Remove(item);
-            if (removed)
+            if (instances.Remove(item))
                 lastRefRemoved = DateTime.UtcNow;
         }
         public bool HasInstance(GameObject item) => instances.Contains(item);

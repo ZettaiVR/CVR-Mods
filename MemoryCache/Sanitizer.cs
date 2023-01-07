@@ -26,9 +26,9 @@ namespace Zettai
             PlayerSetup.Instance.avatarTags = tags.AvatarTags;
         }
 
-        public static void CleanAvatarGameObjectNetwork(GameObject avatar, bool isFriend, string assetId, Tags tags, bool forceShow, bool forceBlock)
+        public static void CleanAvatarGameObjectNetwork(GameObject avatar, bool isFriend, string assetId, Tags tags, bool forceShow, bool forceBlock, bool isVisible)
         {
-            CleanAvatarGameObject(avatar, assetId, 10, isFriend, tags, false, forceShow, forceBlock);
+            CleanAvatarGameObject(avatar, assetId, 10, isFriend, tags, false, forceShow, forceBlock, isVisible);
         }
 
         public struct Permissions
@@ -249,14 +249,14 @@ namespace Zettai
 		}
 
         public static void CleanAvatarGameObject(GameObject avatar, string assetId, int layer, bool isFriend, Tags tags, bool disableAudio = false, 
-            bool forceShow = false, bool forceBlock = false)
+            bool forceShow = false, bool forceBlock = false, bool isVisible = true)
         {
             PlayerDescriptor playerDescriptor = avatar.GetComponentInParent<PlayerDescriptor>();
             CVRAvatar cvrAvatar = avatar.GetComponent<CVRAvatar>();
             Permissions p = new Permissions(tags, disableAudio, isFriend, forceShow);
 
             ApplyAdvancedTags(cvrAvatar, assetId, ref p);
-            bool hide = p.Hide;
+            bool hide = p.Hide && isVisible;
             if (forceShow)
                 hide = false;
             if (forceBlock)

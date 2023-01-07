@@ -285,7 +285,7 @@ namespace Zettai
             {
                 if (enableLog.Value)
                     MelonLogger.Msg($"Local avatar: owner: '{owner}', MetaPort.Instance.ownerId: {MetaPort.Instance.ownerId}.");
-                yield return item.GetSanitizedAvatar(tempParent, instances, item.Tags, assetId, true);
+                yield return item.GetSanitizedAvatar(tempParent, instances, item.Tags, assetId, isLocal: true);
                 if (instances.Count == 0 || !instances[0])
                 {
                     MelonLogger.Error($"Instantiating avatar failed: ID: '{assetId}', owner: local.");
@@ -312,12 +312,14 @@ namespace Zettai
                 yield break;
             }
             bool friendsWith = FriendsWith(owner);
-            bool avatarVisibility = MetaPort.Instance.SelfModerationManager.GetAvatarVisibility(owner, assetId, out bool forceBlock, out bool forceShow);
+            bool avatarVisibility = MetaPort.Instance.SelfModerationManager.GetAvatarVisibility(owner, assetId, out bool forceHidden, out bool forceShow);
+            string blockReason = string.Empty;
+            avatarVisibility = avatarVisibility && ABI_RC.Core.Util.AssetFiltering.AssetFilter.GetAvatarVisibility(ref blockReason, owner, item.Tags.AvatarTags, friendsWith, forceShow, forceHidden, null);
+            if (enableLog.Value && !string.IsNullOrEmpty(blockReason))
+                MelonLogger.Msg($"Avatar hidden, reason: {blockReason}. ID: {assetId}, owner ID: {owner}");
             forceShow = forceShow && avatarVisibility;
-            forceBlock = forceBlock && !avatarVisibility;
-
-
-            yield return item.GetSanitizedAvatar(tempParent, instances, item.Tags, assetId, avatarVisibility, friendsWith, forceShow, forceBlock);
+            forceHidden = forceHidden && !avatarVisibility;
+            yield return item.GetSanitizedAvatar(tempParent, instances, item.Tags, assetId, isLocal: false, friendsWith: friendsWith, isVisible: avatarVisibility, forceShow: forceShow, forceBlock: forceHidden);
             if (instances.Count == 0 || !instances[0])
             {
                 MelonLogger.Error($"Instantiating avatar failed: ID: '{assetId}', owner: '{owner}'.");
@@ -417,7 +419,7 @@ namespace Zettai
                     return;
                 var go = __instance.gameObject;
                 if (enableLog.Value)
-                    MelonLogger.Msg($"Deleting {go.name}, {cachedAssets.Count} cached assets.");
+                    MelonLogger.Msg($"Deleting avatar {go.transform.root.name}, {cachedAssets.Count} cached assets.");
                 CacheItem.RemoveInstance(go);
             }
         }
