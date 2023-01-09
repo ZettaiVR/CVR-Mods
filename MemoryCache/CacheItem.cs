@@ -9,7 +9,7 @@ namespace Zettai
 {
     public class CacheItem
     {
-        public CacheItem(string id, string FileId, DownloadTask.ObjectType type, GameObject item, Tags tags, string name)
+        public CacheItem(string id, string fileId, DownloadTask.ObjectType type, GameObject item, Tags tags, string name)
         {
             AddTime = DateTime.UtcNow;
             AssetId = id;
@@ -22,24 +22,13 @@ namespace Zettai
             NormalizeQuaternionAll(item.transform);
             Name = name;
             Tags = tags;
-            this.FileId = FileId;
-        }
-        internal CacheItem(string id, string FileId, DownloadTask.ObjectType type, GameObject item, Tags tags, string name, bool readOnly)
-        {
-            AddTime = DateTime.UtcNow;
-            AssetId = id;
-            ObjectType = type;
-            OriginalItem = item;
+            FileId = fileId;
+            if (type == DownloadTask.ObjectType.Prop)
+                return;
             item.transform.localPosition = Vector3.zero;
             item.transform.localRotation = Quaternion.identity;
-            WasEnabled = item.activeSelf;
-            item.SetActive(false);
-            NormalizeQuaternionAll(item.transform);
-            ReadOnly = readOnly;
-            Name = name;
-            Tags = tags;
-            this.FileId = FileId;
         }
+        internal CacheItem(string id, string FileId, DownloadTask.ObjectType type, GameObject item, Tags tags, string name, bool readOnly) : this(id, FileId, type, item, tags, name) => ReadOnly = readOnly;
         public override string ToString() => string.IsNullOrEmpty(Name) ? AssetId : Name;
         private readonly GameObject OriginalItem;
         private readonly HashSet<GameObject> instances = new HashSet<GameObject>();
