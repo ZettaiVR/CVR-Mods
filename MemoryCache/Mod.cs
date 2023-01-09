@@ -174,7 +174,8 @@ namespace Zettai
                 yield return null;
                 var sw = new System.Diagnostics.Stopwatch();
                 sw.Start();
-                while (!instantiateSemaphore.Wait(0))
+
+                while (instantiateSemaphore.CurrentCount == 0)
                 {
                     if (loadTimeoutSecondsEntry.Value == 0 || sw.Elapsed.TotalSeconds < loadTimeoutSecondsEntry.Value)
                         yield return null;
@@ -183,7 +184,9 @@ namespace Zettai
                         MelonLogger.Error($"Timeout loading asset {type}: ID: '{id}', fileId: {fileId}, owner: '{owner}'.");
                         yield break;
                     }
-                }
+                } 
+                while (!instantiateSemaphore.Wait(0)) 
+                    yield return null;
             }
             if (enableLog.Value)
                 MelonLogger.Msg($"Instantiating item {type}: ID: '{id}', fileId: {fileId}, owner: '{owner}'.");
@@ -512,14 +515,15 @@ namespace Zettai
             var sw = new System.Diagnostics.Stopwatch();
             sw.Start();
             var timeout = loadTimeoutSecondsEntry.Value;
-            while (!bundleLoadSemaphore.Wait(0))
+            while (bundleLoadSemaphore.CurrentCount == 0)
             {
                 if (sw.Elapsed.TotalSeconds < timeout)
                     yield return null;
                 else
                     yield break;
             }
-            
+            while (!bundleLoadSemaphore.Wait(0))
+                yield return null;
             bool shouldRelease = true;
             AssetBundleCreateRequest bundle = null;
             try
