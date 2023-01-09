@@ -15,8 +15,6 @@ namespace Zettai
             AssetId = id;
             ObjectType = type;
             OriginalItem = item;
-            item.transform.localPosition = Vector3.zero;
-            item.transform.localRotation = Quaternion.identity;
             WasEnabled = item.activeSelf;
             item.SetActive(false);
             NormalizeQuaternionAll(item.transform);
