@@ -85,14 +85,26 @@ namespace Zettai
             transforms.Clear();
         }
 
-        public IEnumerator GetSanitizedProp(GameObject parent, List<GameObject> instances, Tags tags, string assetId, bool isOwnOrFriend, bool visibility, bool wasForceHidden, bool wasForceShown)
+        public IEnumerator GetSanitizedProp(GameObject parent, List<GameObject> instanceList, Tags tags, string assetId, string target, string spawnedBy)
         {
+            var empty = string.Empty;
+            bool isOwnOrFriend = spawnedBy == ABI_RC.Core.Savior.MetaPort.Instance.ownerId || MemoryCache.FriendsWith(spawnedBy);
+            bool isVisible = ABI_RC.Core.Savior.MetaPort.Instance.SelfModerationManager.GetPropVisibility(spawnedBy, target, out bool wasForceHidden, out bool wasForceShown);
+            bool hidden = !isVisible || !ABI_RC.Core.Util.AssetFiltering.AssetFilter.GetPropFilterStatus(ref empty, assetId, tags.PropTags, isOwnOrFriend, wasForceShown, wasForceHidden);
+            if (hidden)
+            {
+                MelonLoader.MelonLogger.Error($"Hidden by content filter: '{empty}', assetId: {assetId}, target: {target}, spawnedBy: {spawnedBy}, isVisible: {isVisible}, isOwnOrFriend: {isOwnOrFriend}, wasForceShown: {wasForceShown}, wasForceHidden: {wasForceHidden}', tags: {tags}.");
+                ABI_RC.Core.Util.AssetFiltering.AssetFilter.FilterProp(assetId, parent, tags.PropTags, isOwnOrFriend, isVisible, wasForceHidden, wasForceShown);
+                yield break;
+            }
             ClearTransformChildren(parent);
             var instance = GameObject.Instantiate(OriginalItem, parent.transform);
             yield return null;
-            ABI_RC.Core.Util.AssetFiltering.AssetFilter.FilterProp(assetId, instance, tags.PropTags, isOwnOrFriend, visibility, wasForceHidden, wasForceShown);
+            ABI_RC.Core.Util.AssetFiltering.AssetFilter.FilterProp(assetId, instance, tags.PropTags, isOwnOrFriend, isVisible, wasForceHidden, wasForceShown);
+            if (!instance)
+                yield break;
             AddInstance(instance);
-            instances.Add(instance);
+            instanceList.Add(instance);
         }
        
         private void AddInstance(GameObject item)

@@ -1,5 +1,4 @@
 ﻿using ABI.CCK.Components;
-using ABI_RC.Core;
 using ABI_RC.Core.EventSystem;
 using ABI_RC.Core.InteractionSystem;
 using ABI_RC.Core.IO;
@@ -39,7 +38,6 @@ namespace Zettai
         private static readonly Dictionary<CacheKey, TimeSpan> idsToRemove = new Dictionary<CacheKey, TimeSpan>(10);
         private readonly static Dictionary<ulong, string> fileIds = new Dictionary<ulong, string>();
         private static readonly HashSet<CacheKey> idsToRemoveStrings = new HashSet<CacheKey>(); 
-        private static readonly List<DynamicBone> dbList = new List<DynamicBone>();
         private static readonly Guid BLOCKED_GUID = new Guid("B10CED00-F372-4ECE-B362-1F48E64D2F7E");
         private static readonly CacheKey BlockedKey = new CacheKey(BLOCKED_GUID, 0, 0);
         const string _BLOCKED_NAME = "Blocked";
@@ -192,7 +190,7 @@ namespace Zettai
                 MelonLogger.Msg($"Instantiating item {type}: ID: '{id}', fileId: {fileId}, owner: '{owner}'.");
             GameObject parent;
             GameObject instance;
-            List<GameObject> instances = new List<GameObject>(1);
+            List<GameObject> instanceList = new List<GameObject>(1);
             if (type == DownloadTask.ObjectType.Avatar)
             {
                 bool local = owner == "_PLAYERLOCAL" || string.Equals(owner, MetaPort.Instance.ownerId);
@@ -206,8 +204,8 @@ namespace Zettai
                     player = FindPlayer(owner);
                     parent = player?.AvatarHolder;
                 }
-                yield return InstantiateAvatar(item, instances, id, owner, parent, player, local);
-                instance = instances.Count == 0 ? null : instances[0];
+                yield return InstantiateAvatar(item, instanceList, id, owner, parent, player, local);
+                instance = instanceList.Count == 0 ? null : instanceList[0];
                 if (!instance)
                 {
                     MelonLogger.Error($"Instantiating item {type} failed: ID: '{id}', owner: '{owner}'.");
@@ -231,11 +229,11 @@ namespace Zettai
                 var propData = FindProp(owner);
                 parent = new GameObject(owner);
                 //MelonLoader.MelonLogger.Msg($"item: {item != null}, parent: {parent}, owner: {owner}, propData: {propData != null}, {propData?.InstanceId}");
-                yield return InstantiateProp(item, instances, owner, parent, propData);
-                instance = instances.Count == 0 ? null : instances[0];
+                yield return InstantiateProp(item, instanceList, owner, parent, propData);
+                instance = instanceList.Count == 0 ? null : instanceList[0];
                 if (!instance)
                 {
-                    MelonLogger.Error($"Instantiating item {type} failed: ID: '{id}', owner: '{owner}, instances.Count: {instances.Count}'.");
+                    MelonLogger.Error($"Instantiating item {type} failed: ID: '{id}', owner: '{owner}, instances.Count: {instanceList.Count}'.");
                     if (wait) 
                         instantiateSemaphore.Release();
                     yield break;
@@ -347,16 +345,17 @@ namespace Zettai
             GameObject.DestroyImmediate(tempParent);
         }
 
-        private static IEnumerator InstantiateProp(CacheItem item, List<GameObject> instances, string target, GameObject parent, CVRSyncHelper.PropData propData)
+        private static IEnumerator InstantiateProp(CacheItem item, List<GameObject> instanceList, string target, GameObject parent, CVRSyncHelper.PropData propData)
         {
             if (propData == null || item == null)
+            {
+                if (enableLog.Value) 
+                    MelonLogger.Error($"InstantiateProp failed, propData '{propData == null}', item: '{item == null}'.");
                 yield break;
+            }
             parent.transform.SetPositionAndRotation(new Vector3(propData.PositionX, propData.PositionY, propData.PositionZ),
                 Quaternion.Euler(propData.RotationX, propData.RotationY, propData.RotationZ));
-            bool propVisibility = MetaPort.Instance.SelfModerationManager.GetPropVisibility(propData.SpawnedBy, target, out bool wasForceHidden, out bool wasForceShown);
-            bool isOwn = propData.SpawnedBy == MetaPort.Instance.ownerId || FriendsWith(propData.SpawnedBy);
-            yield return item.GetSanitizedProp(parent, instances, item.Tags, item.AssetId, isOwn, propVisibility, wasForceHidden, wasForceShown);
-
+            yield return item.GetSanitizedProp(parent, instanceList, item.Tags, item.AssetId, target, propData.SpawnedBy);
         }
         private static void SetPropData(CVRSyncHelper.PropData propData, GameObject container, GameObject propInstance)
         {
@@ -364,7 +363,10 @@ namespace Zettai
                 return;
             var component = propInstance.GetComponent<CVRSpawnable>();
             if (component == null || component.transform == null)
+            {
+                MelonLogger.Error($"SetPropData failed, component found? '{component == null}'.");
                 return;
+            }
             component.transform.localPosition = new Vector3(0f, component.spawnHeight, 0f);
             propData.Spawnable = component;
             propData.Wrapper = container;
@@ -380,7 +382,7 @@ namespace Zettai
             }
             return null;
         }
-        private static bool FriendsWith(string owner)
+        internal static bool FriendsWith(string owner)
         {
             if (string.IsNullOrEmpty(owner))
                 return false;
