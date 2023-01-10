@@ -90,17 +90,21 @@ namespace Zettai
             var empty = string.Empty;
             bool isOwnOrFriend = spawnedBy == ABI_RC.Core.Savior.MetaPort.Instance.ownerId || MemoryCache.FriendsWith(spawnedBy);
             bool isVisible = ABI_RC.Core.Savior.MetaPort.Instance.SelfModerationManager.GetPropVisibility(spawnedBy, target, out bool wasForceHidden, out bool wasForceShown);
-            bool hidden = !isVisible || !ABI_RC.Core.Util.AssetFiltering.AssetFilter.GetPropFilterStatus(ref empty, assetId, tags.PropTags, isOwnOrFriend, wasForceShown, wasForceHidden);
+            bool mustShow = string.Equals(spawnedBy, "SYSTEM") || string.Equals(spawnedBy, "LocalServer");
+            bool hidden = !mustShow && (!isVisible || !ABI_RC.Core.Util.AssetFiltering.AssetFilter.GetPropFilterStatus(ref empty, assetId, tags.PropTags, isOwnOrFriend, wasForceShown, wasForceHidden));
             if (hidden)
             {
-                MelonLoader.MelonLogger.Error($"Hidden by content filter: '{empty}', assetId: {assetId}, target: {target}, spawnedBy: {spawnedBy}, isVisible: {isVisible}, isOwnOrFriend: {isOwnOrFriend}, wasForceShown: {wasForceShown}, wasForceHidden: {wasForceHidden}', tags: {tags}.");
+                MelonLoader.MelonLogger.Error($"Hidden by content filter: '{empty}', Asset ID: {assetId}, target: {target}, spawned by: {spawnedBy}, isVisible: {isVisible}, isOwnOrFriend: {isOwnOrFriend}, wasForceShown: {wasForceShown}, wasForceHidden: {wasForceHidden}', tags: {tags}.");
                 ABI_RC.Core.Util.AssetFiltering.AssetFilter.FilterProp(assetId, parent, tags.PropTags, isOwnOrFriend, isVisible, wasForceHidden, wasForceShown);
                 yield break;
             }
             ClearTransformChildren(parent);
             var instance = GameObject.Instantiate(OriginalItem, parent.transform);
             yield return null;
-            ABI_RC.Core.Util.AssetFiltering.AssetFilter.FilterProp(assetId, instance, tags.PropTags, isOwnOrFriend, isVisible, wasForceHidden, wasForceShown);
+            if (!mustShow)
+                ABI_RC.Core.Util.AssetFiltering.AssetFilter.FilterProp(assetId, instance, tags.PropTags, isOwnOrFriend, isVisible, wasForceHidden, wasForceShown);
+            else
+                MelonLoader.MelonLogger.Warning($"Prop force shown regardless of content filter. Asset ID: {assetId}, target: {target}, spawned by: {spawnedBy}, isVisible: {isVisible}, isOwnOrFriend: {isOwnOrFriend}, wasForceShown: {wasForceShown}, wasForceHidden: {wasForceHidden}', tags: {tags}.");
             if (!instance)
                 yield break;
             AddInstance(instance);
