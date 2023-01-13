@@ -30,7 +30,7 @@ namespace Zettai
         internal static MelonPreferences_Entry<bool> enableGC;
         private static MelonPreferences_Entry<byte> maxLifeTimeMinutesEntry;
         private static MelonPreferences_Entry<byte> maxRemoveCountEntry;
-        private static MelonPreferences_Entry<byte> loadTimeoutSecondsEntry;
+        private static MelonPreferences_Entry<ushort> loadTimeoutSecondsEntry;
         private static bool FlushCache = false;
         private static readonly System.Threading.SemaphoreSlim bundleLoadSemaphore = new System.Threading.SemaphoreSlim(1, 1);
         private static readonly System.Threading.SemaphoreSlim instantiateSemaphore = new System.Threading.SemaphoreSlim(1, 1);
@@ -54,7 +54,7 @@ namespace Zettai
             enableHologram = category.CreateEntry("enableHologram", true, "Enable Hologram");
             maxLifeTimeMinutesEntry = category.CreateEntry("maxLifeTimeMinutesEntry", (byte)15, "Maximum lifetime of unused assets in cache (minutes)");
             maxRemoveCountEntry = category.CreateEntry("maxRemoveCountEntry", (byte)5, "Maximum number of assets to remove from cache per minute");
-            loadTimeoutSecondsEntry = category.CreateEntry("loadTimeoutSecondsEntry", (byte)30, "Maximum time in seconds for assets to wait for loading before giving up");
+            loadTimeoutSecondsEntry = category.CreateEntry("loadTimeoutSecondsEntry", (ushort)60, "Maximum time in seconds for assets to wait for loading before giving up. Set 0 to disable.");
             enableMod.OnValueChanged += EnableMod_OnValueChanged;
         }
         private void EnableMod_OnValueChanged(bool arg1, bool arg2) => EmptyCache();
@@ -547,7 +547,7 @@ namespace Zettai
             var timeout = loadTimeoutSecondsEntry.Value;
             while (bundleLoadSemaphore.CurrentCount == 0)
             {
-                if (sw.Elapsed.TotalSeconds < timeout)
+                if (timeout == 0 || sw.Elapsed.TotalSeconds < timeout)
                     yield return null;
                 else
                     yield break;
