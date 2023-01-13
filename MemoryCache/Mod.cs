@@ -552,10 +552,11 @@ namespace Zettai
                     bundleLoadSemaphore.Release();
                     shouldRelease = false;
                 }
-
                 var name = GetName(gameObject, FileId);
                 var cacheKey = new CacheKey(id, FileId, keyHash);
                 var item = cachedAssets[cacheKey] = new CacheItem(id, FileId, type, gameObject, tags, name);
+                if (enableLog.Value)
+                    MelonLogger.Msg($"Added asset '{type}' with ID '{id}', file ID '{FileId}', game object name '{(gameObject != null ? gameObject.name : "-null-")}', tags: {tags}.");
                 yield return InstantiateItem(item, type, id, FileId, owner, wait: false);
             }
             finally
