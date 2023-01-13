@@ -91,6 +91,8 @@ namespace Zettai
             bool isOwnOrFriend = spawnedBy == ABI_RC.Core.Savior.MetaPort.Instance.ownerId || MemoryCache.FriendsWith(spawnedBy);
             bool isVisible = ABI_RC.Core.Savior.MetaPort.Instance.SelfModerationManager.GetPropVisibility(spawnedBy, target, out bool wasForceHidden, out bool wasForceShown);
             bool mustShow = string.Equals(spawnedBy, "SYSTEM") || string.Equals(spawnedBy, "LocalServer");
+            if (MemoryCache.enableLog.Value)
+                MelonLoader.MelonLogger.Msg($"isOwnOrFriend: {isOwnOrFriend}, isVisible: {isVisible}, mustShow: {mustShow}.");
             bool hidden = !mustShow && (!isVisible || !ABI_RC.Core.Util.AssetFiltering.AssetFilter.GetPropFilterStatus(ref empty, assetId, tags.PropTags, isOwnOrFriend, wasForceShown, wasForceHidden));
             if (hidden)
             {
@@ -100,6 +102,8 @@ namespace Zettai
             }
             ClearTransformChildren(parent);
             var instance = GameObject.Instantiate(OriginalItem, parent.transform);
+            if (MemoryCache.enableLog.Value)
+                MelonLoader.MelonLogger.Msg($"OriginalItem: '{(OriginalItem != null ? OriginalItem.name : "-null-")}', instance: '{(instance != null ? instance.name : "-null-")}'.");
             yield return null;
             if (!mustShow)
                 ABI_RC.Core.Util.AssetFiltering.AssetFilter.FilterProp(assetId, instance, tags.PropTags, isOwnOrFriend, isVisible, wasForceHidden, wasForceShown);

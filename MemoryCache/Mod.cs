@@ -131,7 +131,7 @@ namespace Zettai
                 if (!enableMod.Value || (type != DownloadTask.ObjectType.Avatar && type != DownloadTask.ObjectType.Prop))
                     return true;
                 if (enableLog.Value)
-                    MelonLogger.Msg($"Downloading asset '{type}': '{assetId}', '{fileId}', '{fileHash}', tags: { new Tags(tagsData) }.");
+                    MelonLogger.Msg($"Downloading asset '{type}': assetId: '{assetId}', fileId: '{fileId}', fileHash: '{fileHash}', fileSize: {fileSize}, assetUrl empty? {string.IsNullOrEmpty(assetUrl)}, tags: { new Tags(tagsData) }.");
                 if (string.IsNullOrEmpty(fileId) && fileIds.TryGetValue(StringToLongHash(fileKey), out string FileId))
                     fileId = FileId;
                 var cacheKey = new CacheKey(assetId, fileId, StringToLongHash(fileKey));
@@ -179,7 +179,7 @@ namespace Zettai
                         yield return null;
                     else
                     {
-                        MelonLogger.Error($"Timeout loading asset {type}: ID: '{id}', fileId: {fileId}, owner: '{owner}'.");
+                        MelonLogger.Error($"Timeout loading asset {type}: ID: '{id}', fileId: '{fileId}', owner: '{owner}'.");
                         yield break;
                     }
                 } 
@@ -187,7 +187,7 @@ namespace Zettai
                     yield return null;
             }
             if (enableLog.Value)
-                MelonLogger.Msg($"Instantiating item {type}: ID: '{id}', fileId: {fileId}, owner: '{owner}'.");
+                MelonLogger.Msg($"Instantiating item {type}: ID: '{id}', fileId: '{fileId}', owner: '{owner}'.");
             GameObject parent;
             GameObject instance;
             List<GameObject> instanceList = new List<GameObject>(1);
@@ -227,13 +227,18 @@ namespace Zettai
             else if (type == DownloadTask.ObjectType.Prop)
             {
                 var propData = FindProp(owner);
+                if (propData == null)
+                {
+                    MelonLogger.Error($"Instantiating item {type} failed: ID: '{id}', owner: '{owner}'. Prop data not found. count: { (CVRSyncHelper.Props?.Count.ToString() ?? "-null-")}'.");
+                    yield break;
+                }
                 parent = new GameObject(owner);
                 //MelonLoader.MelonLogger.Msg($"item: {item != null}, parent: {parent}, owner: {owner}, propData: {propData != null}, {propData?.InstanceId}");
                 yield return InstantiateProp(item, instanceList, owner, parent, propData);
                 instance = instanceList.Count == 0 ? null : instanceList[0];
                 if (!instance)
                 {
-                    MelonLogger.Error($"Instantiating item {type} failed: ID: '{id}', owner: '{owner}, instances.Count: {instanceList.Count}'.");
+                    MelonLogger.Error($"Instantiating item {type} failed: ID: '{id}', owner: '{owner}', instances.Count: '{instanceList.Count}'.");
                     if (wait) 
                         instantiateSemaphore.Release();
                     yield break;
