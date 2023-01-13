@@ -194,16 +194,7 @@ namespace Zettai
             if (type == DownloadTask.ObjectType.Avatar)
             {
                 bool local = owner == "_PLAYERLOCAL" || string.Equals(owner, MetaPort.Instance.ownerId);
-                CVRPlayerEntity player = null;
-                if (local)
-                {
-                    parent = PlayerSetup.Instance.PlayerAvatarParent;
-                }
-                else
-                {
-                    player = FindPlayer(owner);
-                    parent = player?.AvatarHolder;
-                }
+                CVRPlayerEntity player = FindPlayerParent(owner, out parent, local);
                 yield return InstantiateAvatar(item, instanceList, id, owner, parent, player, local);
                 instance = instanceList.Count == 0 ? null : instanceList[0];
                 if (!instance)
@@ -253,6 +244,22 @@ namespace Zettai
                 instantiateSemaphore.Release();
             }
         }
+
+        private static CVRPlayerEntity FindPlayerParent(string owner, out GameObject parent, bool local)
+        {
+            CVRPlayerEntity player = null;
+            if (local)
+            {
+                parent = PlayerSetup.Instance.PlayerAvatarParent;
+            }
+            else
+            {
+                player = FindPlayer(owner);
+                parent = player?.AvatarHolder;
+            }
+            return player;
+        }
+
         private static void ActivateInstance(CacheItem item, GameObject parent, GameObject instance)
         {
             if (!parent || !instance)
@@ -334,7 +341,23 @@ namespace Zettai
             yield return null;
             yield return new WaitForEndOfFrame();
             //delete current avatar, disable parent, move new to proper parent
+            if (instances.Count == 0 || !instances[0])
+            {
+                MelonLogger.Error($"Instantiating avatar failed: ID: '{assetId}', owner: '{owner}'.");
+                yield break;
+            }
             instance = instances[0];
+            if (!parent)
+            {
+                FindPlayerParent(owner, out parent, isLocal);
+                if (!parent)
+                {
+                    MelonLogger.Error($"Instantiating avatar failed, owner '{owner}' cannot be found.");
+                    CacheItem.RemoveInstance(instance);
+                    GameObject.DestroyImmediate(instance);
+                    yield break;
+                }
+            }
             ActivateNewGameObject(instance, parent, oldGameObjects, tempParent);
             SetPlayerCapsuleSize(player, instance);
 
@@ -562,9 +585,7 @@ namespace Zettai
             finally
             {
                 if ((bundle?.assetBundle) != null && bundle != null)
-                {
                     bundle.assetBundle.Unload(false);
-                }
                 if (shouldRelease)
                     bundleLoadSemaphore.Release();
             }
