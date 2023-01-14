@@ -15,6 +15,7 @@ using UnityEngine.Scripting;
 using System.Linq;
 using UnityEngine;
 using Zettai;
+using System.Threading;
 
 [assembly: MelonInfo(typeof(MemoryCache), "MemoryCache", "1.0", "Zettai")]
 [assembly: MelonGame(null, null)]
@@ -27,14 +28,18 @@ namespace Zettai
         internal static MelonPreferences_Entry<bool> enableLog;
         internal static MelonPreferences_Entry<bool> enableHologram;
         internal static MelonPreferences_Entry<bool> enableOwnSanitizer;
+        internal static MelonPreferences_Entry<bool> enableDownloader;
         internal static MelonPreferences_Entry<bool> enableGC;
         private static MelonPreferences_Entry<byte> maxLifeTimeMinutesEntry;
         private static MelonPreferences_Entry<byte> maxRemoveCountEntry;
         private static MelonPreferences_Entry<ushort> loadTimeoutSecondsEntry;
         private static bool FlushCache = false;
-        private static readonly System.Threading.SemaphoreSlim bundleLoadSemaphore = new System.Threading.SemaphoreSlim(1, 1);
-        private static readonly System.Threading.SemaphoreSlim instantiateSemaphore = new System.Threading.SemaphoreSlim(1, 1);
+        private static bool CheckDiskCacheHash = true;
+        private static readonly SemaphoreSlim bundleLoadSemaphore = new SemaphoreSlim(1, 1);
+        private static readonly SemaphoreSlim instantiateSemaphore = new SemaphoreSlim(1, 1);
+        private static readonly SemaphoreSlim downloadSemaphore = new SemaphoreSlim(3, 3);
         private static readonly Dictionary<CacheKey, CacheItem> cachedAssets = new Dictionary<CacheKey, CacheItem>();
+        private static readonly Dictionary<CacheKey, DownloadData> downloadTasks = new Dictionary<CacheKey, DownloadData>();
         private static readonly Dictionary<CacheKey, TimeSpan> idsToRemove = new Dictionary<CacheKey, TimeSpan>(10);
         private readonly static Dictionary<ulong, string> fileIds = new Dictionary<ulong, string>();
         private static readonly HashSet<CacheKey> idsToRemoveStrings = new HashSet<CacheKey>(); 
@@ -46,16 +51,31 @@ namespace Zettai
         const string _AVATAR_PATH = "assets/abi.cck/resources/cache/_cvravatar.prefab";
         public override void OnApplicationStart()
         {
+            MelonCoroutines.Start(FileCache.Init());
             var category = MelonPreferences.CreateCategory("Zettai");
             enableMod = category.CreateEntry("enableMemoryCacheMod", true, "Enable MemoryCache mod");
             enableLog = category.CreateEntry("enableMemoryCacheLog", false, "Enable MemoryCache logging");
             enableGC = category.CreateEntry("enableGC", false, "Enable GC after Instantiation");
             enableOwnSanitizer = category.CreateEntry("enableOwnSanitizer", false, "Enable MemoryCache's custom asset cleaning/sanitizer");
+            enableDownloader = category.CreateEntry("enableDownloader", false, "Enable MemoryCache's downloader");
             enableHologram = category.CreateEntry("enableHologram", true, "Enable Hologram");
             maxLifeTimeMinutesEntry = category.CreateEntry("maxLifeTimeMinutesEntry", (byte)15, "Maximum lifetime of unused assets in cache (minutes)");
             maxRemoveCountEntry = category.CreateEntry("maxRemoveCountEntry", (byte)5, "Maximum number of assets to remove from cache per minute");
             loadTimeoutSecondsEntry = category.CreateEntry("loadTimeoutSecondsEntry", (ushort)60, "Maximum time in seconds for assets to wait for loading before giving up. Set 0 to disable.");
             enableMod.OnValueChanged += EnableMod_OnValueChanged;
+        }
+        public override void OnLateUpdate()
+        {
+            foreach (var item in downloadTasks)
+            {
+                if (item.Value.IsDone)
+                    continue;
+                item.Value.UpdateLoadingAvatar();
+            }
+        }
+        public override void OnApplicationQuit()
+        {
+            FileCache.AbortAllThreads();
         }
         private void EnableMod_OnValueChanged(bool arg1, bool arg2) => EmptyCache();
         public override void OnSceneWasLoaded(int buildIndex, string sceneName) => UpdateBlockedAvatar();
@@ -79,7 +99,7 @@ namespace Zettai
         public static void CleanupCache()
         {
             idsToRemove.Clear();
-            var keys = cachedAssets.Keys;
+            var keys = cachedAssets.Keys.AsEnumerable();
             var now = DateTime.UtcNow;
             byte maxLifeTimeMinutes = FlushCache ? (byte)0 : maxLifeTimeMinutesEntry.Value;
             var maxAge = TimeSpan.FromMinutes(maxLifeTimeMinutes);
@@ -88,6 +108,13 @@ namespace Zettai
                 var item = cachedAssets[id];
                 if (item.CanRemove(maxAge, now, out var age))
                     idsToRemove.Add(id, age);
+            }
+            keys = downloadTasks.Keys.AsEnumerable();
+            foreach (var id in keys)
+            {
+                var item = downloadTasks[id];
+                if (item.Failed)
+                    idsToRemove.Add(id, TimeSpan.MaxValue);
             }
             if (idsToRemove.Count == 0)
                 return;
@@ -100,9 +127,14 @@ namespace Zettai
             }
             foreach (var item in idsToRemove)
             {
-                cachedAssets[item.Key].Destroy();
-                cachedAssets.Remove(item.Key);
-                fileIds.Remove(item.Key.KeyHash);
+                var key = item.Key;
+                if (cachedAssets.TryGetValue(key, out var cacheItem))
+                    cacheItem.Destroy();
+                if (downloadTasks.TryGetValue(key, out var downloadTask))
+                    downloadTask.Destroy();
+                cachedAssets.Remove(key);
+                downloadTasks.Remove(key);
+                fileIds.Remove(key.KeyHash);
             }
             idsToRemove.Clear();
             GarbageCollector.CollectIncremental(GarbageCollector.incrementalTimeSliceNanoseconds);
@@ -140,7 +172,18 @@ namespace Zettai
                     if (!item.IsMatch(type, assetId, fileId))
                     {
                         if (enableLog.Value)
-                            MelonLogger.Msg($"Cache mismatch, downloading '{type}'.");
+                            MelonLogger.Msg($"Cache mismatch, downloading '{type}'. assetId '{assetId}' fileId '{fileId}' item.AssetId '{item.AssetId}' item.FileId '{item.FileId}'. ");
+                        if (enableDownloader.Value)
+                        {
+                            if (StartDownloadAsset(cacheKey, assetId, type, assetUrl, fileId, fileSize, fileKey, toAttach, fileHash, tagsData, joinOnComplete, loadingAvatarController))
+                            {
+                                return false;
+                            }
+                            else
+                            {
+                                return true;
+                            }
+                        }
                         return true;
                     }
                     if (enableLog.Value)
@@ -149,10 +192,309 @@ namespace Zettai
                     return false;
                 }
                 if (enableLog.Value)
-                    MelonLogger.Msg($"Downloading '{type}'.");
+                    MelonLogger.Msg($"Asset not cached, start downloading '{type}' assetId '{assetId}' fileId '{fileId}'. ");
+                if (enableDownloader.Value)
+                {
+                    if (StartDownloadAsset(cacheKey, assetId, type, assetUrl, fileId, fileSize, fileKey, toAttach, fileHash, tagsData, joinOnComplete, loadingAvatarController))
+                    {
+                        return false;
+                    }
+                    else
+                    {
+                        return true;
+                    }
+                }
                 return true;
             }
         }
+        private static bool StartDownloadAsset(CacheKey cacheKey, string assetId, DownloadTask.ObjectType type, string assetUrl, string fileId, long fileSize, string fileKey, string target, string fileHash,
+                UgcTagsData tagsData = null, bool joinOnComplete = false, CVRLoadingAvatarController loadingAvatarController = null)
+        {
+            if (!FileCache.InitDone)
+                return false;
+            MelonCoroutines.Start(DownloadAsset(cacheKey, assetId, type, assetUrl, fileId, fileSize, fileKey, target, fileHash, tagsData, joinOnComplete, loadingAvatarController));
+            return true;
+        }
+
+
+
+        private static IEnumerator DownloadAsset(CacheKey cacheKey, string assetId, DownloadTask.ObjectType type, string assetUrl, string fileId, long fileSize, string fileKey, string target, string fileHash,
+                UgcTagsData tagsData = null, bool joinOnComplete = false, CVRLoadingAvatarController loadingAvatarController = null)
+        {
+            if (downloadTasks.TryGetValue(cacheKey, out var downloadData))
+            {
+
+                yield return new WaitForEndOfFrame();
+
+                if (enableLog.Value)
+                    MelonLogger.Msg($"[DL] Found existing download task for '{type}', '{assetId}'.");
+                yield return WaitForDownloadToComplete(downloadData);
+                if (!downloadData.IsDone || downloadData.Failed)
+                    yield break;
+                if (cachedAssets.TryGetValue(cacheKey, out var item))
+                {
+                    if (enableLog.Value)
+                        MelonLogger.Msg($"[DL] Loading asset '{type}', '{assetId}' from cache");
+                    MelonCoroutines.Start(InstantiateItem(item, type, assetId, fileId, target));
+                }
+                else
+                {
+                    if (enableLog.Value)
+                        MelonLogger.Error($"[DL] Loading asset '{type}', '{assetId}' from cache failed.");
+                }
+                yield break;
+
+            }
+            if (enableLog.Value)
+                MelonLogger.Msg($"[DL] Starting loading asset '{type}' with ID '{assetId}'.");
+
+            var filePath = FileCache.GetFileCachePath(type, assetId, fileId);
+            var longHash = StringToLongHash(fileKey);
+            var dlData = new DownloadData(assetId, type, assetUrl, fileId, fileSize, fileKey, fileHash, joinOnComplete, tagsData, target, filePath, loadingAvatarController);
+            downloadTasks[cacheKey] = dlData;
+            fileIds[longHash] = fileId;
+
+            yield return new WaitForEndOfFrame();
+
+            // limit maximum number of concurrent downloads
+            // downloadSemaphore
+            var sw = new System.Diagnostics.Stopwatch();
+            sw.Start();
+            int timeout = loadTimeoutSecondsEntry.Value;
+            while (downloadSemaphore.CurrentCount == 0)
+            {
+                if (timeout == 0 || sw.Elapsed.TotalSeconds < timeout)
+                    yield return null;
+                else
+                {
+                    MelonLogger.Error($"Timeout downloading asset {type}: ID: '{assetId}', fileId: '{fileId}', target: '{target}'.");
+                    yield break;
+                }
+            }
+            while (!downloadSemaphore.Wait(0))
+                yield return null;
+            try
+            {
+                bool download = false;
+                var exists = FileCache.FileExists(type, assetId, fileId);
+
+                if (enableLog.Value)
+                    MelonLogger.Msg($"[DL] Cached file exists: {exists}, CheckDiskCacheHash: {CheckDiskCacheHash}, fileHash: '{fileHash}' asset '{type}' with ID '{assetId}'.");
+
+                if (exists == FileCache.FileCheck.ExistsSameVersion && !string.IsNullOrEmpty(fileHash) && CheckDiskCacheHash)
+                {
+                    yield return ReadRawBytesWait(dlData);
+                    if (dlData.FileReadFailed)
+                        download = true;
+                    if (enableLog.Value)
+                        MelonLogger.Msg($"[DL] Cached file loaded: {dlData.FileReadDone} asset '{type}' with ID '{assetId}'.");
+                    yield return HashRawBytesWait(dlData);
+
+                    if (!string.Equals(fileHash, dlData.calculatedHash))
+                    {
+                        // wrong hash on disk, download again
+                        download = true;
+                    }
+                    if (enableLog.Value)
+                        MelonLogger.Msg($"[DL] Cached file hash check: {dlData.HashDone} asset '{type}' with ID '{assetId}'.");
+                }
+                else
+                {
+                    download = true;
+                }
+                if (download)
+                {
+                    if (enableLog.Value)
+                        MelonLogger.Msg($"[DL] Starting downloading asset '{type}' with ID '{assetId}'.");
+                    yield return StartDownloadWait(dlData);
+
+                    if (enableLog.Value)
+                        MelonLogger.Msg($"[DL] Finished downloading asset '{type}' with ID '{assetId}'.");
+                }
+                if (dlData.HashFailed)
+                {
+                    MelonLogger.Error($"[DL] Error loading asset {type} (Hash Failed): ID: '{assetId}', fileId: '{fileId}', owner: '{target}'.");
+                    dlData.DecryptFailed = true;
+                    dlData.rawData = null;
+                    dlData.decryptedData = null;
+                    yield break;
+                }
+
+                yield return DecryptRawBytesWait(dlData);
+                if (dlData.DecryptFailed)
+                {
+                    dlData.rawData = null;
+                    dlData.decryptedData = null;
+                    MelonLogger.Error($"[DL] Error loading asset {type} (Decrypt Failed): ID: '{assetId}', fileId: '{fileId}', owner: '{target}'.");
+                    yield break;
+                }
+                if (enableLog.Value)
+                    MelonLogger.Msg($"[DL] Cached file decrypt: {dlData.DecryptDone} asset '{type}' with ID '{assetId}'.");
+                //verify
+
+                yield return VerifyWait(dlData);
+                if (dlData.VerifyFailed || !dlData.Verified)
+                {
+                    dlData.rawData = null;
+                    dlData.decryptedData = null;
+                    MelonLogger.Error($"[DL] Error loading asset {type} (Verify Failed): ID: '{assetId}', fileId: '{fileId}', owner: '{target}'.");
+                    yield break;
+                }
+
+                dlData.ReadyToInstantiate = true;
+
+                if (download)
+                    FileCache.WriteToDisk(dlData);
+                else
+                    dlData.rawData = null;
+                if (enableLog.Value)
+                    MelonLogger.Msg($"[DL] Loading finised for asset '{type}' with ID '{assetId}'. ");
+                yield return LoadPatch(dlData.decryptedData, assetId, type, new Tags(tagsData), target, fileId, longHash, null, dlData);
+            }
+            finally 
+            {
+                downloadSemaphore.Release();
+            }
+        }
+
+        private static IEnumerator WaitForDownloadToComplete(DownloadData downloadData)
+        {
+            var sw = new System.Diagnostics.Stopwatch();
+            sw.Start();
+            int timeout = loadTimeoutSecondsEntry.Value;
+            bool noTimeout = timeout == 0;
+            timeout = Mathf.Max(timeout, 5);
+            while (!downloadData.IsDone && !downloadData.Failed)
+            {
+                if (noTimeout || sw.Elapsed.TotalSeconds < timeout)
+                    yield return new WaitForSeconds(0.5f);
+                else
+                    yield break;
+            }
+        }
+
+        private static IEnumerator VerifyWait(DownloadData dlData)
+        {
+            if (!FileCache.ShouldVerify(dlData))
+                yield break;
+            FileCache.Verify(dlData);
+            var sw = new System.Diagnostics.Stopwatch();
+            sw.Start();
+            int timeout = loadTimeoutSecondsEntry.Value;
+            bool noTimeout = timeout == 0;
+            timeout = Mathf.Max(timeout, 5);
+            while (!dlData.VerifyDone && !dlData.VerifyFailed)
+            {
+                if (noTimeout || sw.Elapsed.TotalSeconds < timeout)
+                    yield return null;
+                else
+                {
+                    dlData.VerifyFailed = true;
+                    MelonLogger.Error($"Timeout loading asset {dlData.type}: Verify timeout. ID: '{dlData.assetId}', fileId: '{dlData.fileId}', owner: '{dlData.target}'.");
+                    yield break;
+                }
+            }
+            if (dlData.VerifyFailed)
+            {
+                MelonLogger.Error($"Error loading asset {dlData.type}: Verify Failed.  ID: '{dlData.assetId}', fileId: '{dlData.fileId}', owner: '{dlData.target}'.");
+                yield break;
+            }
+        }
+
+
+        private static IEnumerator DecryptRawBytesWait(DownloadData dlData)
+        {
+            FileCache.Decrypt(dlData);
+            var sw = new System.Diagnostics.Stopwatch();
+            sw.Start();
+
+            while (!dlData.DecryptDone && !dlData.DecryptFailed)
+            {
+                if (loadTimeoutSecondsEntry.Value == 0 || sw.Elapsed.TotalSeconds < loadTimeoutSecondsEntry.Value)
+                    yield return null;
+                else
+                {
+                    dlData.DecryptFailed = true;
+                    MelonLogger.Error($"Timeout loading asset {dlData.type}: Decrypt timeout. ID: '{dlData.assetId}', fileId: '{dlData.fileId}', owner: '{dlData.target}'.");
+                    yield break;
+                }
+            }
+            if (dlData.DecryptFailed)
+            {
+                MelonLogger.Error($"Error loading asset {dlData.type}: Decrypt Failed.  ID: '{dlData.assetId}', fileId: '{dlData.fileId}', owner: '{dlData.target}'.");
+                yield break;
+            }
+        }
+
+        private static IEnumerator ReadRawBytesWait(DownloadData dlData)
+        {
+            var sw = new System.Diagnostics.Stopwatch();
+            sw.Start();
+            FileCache.ReadFile(dlData);
+            while (!dlData.FileReadDone && !dlData.FileReadFailed)
+            {
+                if (loadTimeoutSecondsEntry.Value == 0 || sw.Elapsed.TotalSeconds < loadTimeoutSecondsEntry.Value)
+                    yield return null;
+                else
+                {
+                    dlData.FileReadFailed = true;
+                    MelonLogger.Error($"Timeout loading asset {dlData.type} from disk: ID: '{dlData.assetId}', fileId: '{dlData.fileId}', owner: '{dlData.target}'.");
+                    yield break;
+                }
+            }
+            if (dlData.FileReadFailed)
+            {
+                MelonLogger.Error($"Error loading asset {dlData.type} from disk: ID: '{dlData.assetId}', fileId: '{dlData.fileId}', owner: '{dlData.target}'.");
+                yield break;
+            }
+            sw.Stop();
+        }
+
+        private static IEnumerator HashRawBytesWait(DownloadData dlData) 
+        {
+            var sw = new System.Diagnostics.Stopwatch();
+            sw.Start();
+            FileCache.Hash(dlData);
+            while (!dlData.HashDone && !dlData.HashFailed)
+            {
+                if (loadTimeoutSecondsEntry.Value == 0 || sw.Elapsed.TotalSeconds < loadTimeoutSecondsEntry.Value)
+                    yield return null;
+                else
+                {
+                    dlData.HashFailed = true;
+                    MelonLogger.Error($"Timeout loading asset {dlData.type}: hash timeout. ID: '{dlData.assetId}', fileId: '{dlData.fileId}', owner: '{dlData.target}'.");
+                    yield break;
+                }
+            }
+            if (dlData.HashFailed)
+            {
+                MelonLogger.Error($"Error loading asset {dlData.type}: hash failed. expected: '{dlData.fileHash}' actual: '{dlData.calculatedHash}' ID: '{dlData.assetId}', fileId: '{dlData.fileId}', owner: '{dlData.target}'.");
+                yield break;
+            }
+            sw.Stop();
+        }
+
+        private static IEnumerator StartDownloadWait(DownloadData dlData)
+        {
+            int timeout = loadTimeoutSecondsEntry.Value;
+            bool noTimeout = timeout == 0;
+            timeout = Mathf.Max(timeout, 5);
+            var sw = new System.Diagnostics.Stopwatch();
+            sw.Start();
+            dlData.DownloadFile();
+            while (!dlData.DownloadDone)
+            {
+                if (noTimeout || sw.Elapsed.TotalSeconds < timeout)
+                    yield return null;
+                else
+                {
+                    dlData.FileReadFailed = true;
+                    MelonLogger.Error($"Timeout loading asset {dlData.type}: download timeout. ID: '{dlData.assetId}', fileId: '{dlData.fileId}', owner: '{dlData.target}'.");
+                    yield break;
+                }
+            }
+        }
+
         private static ulong StringToLongHash(string text) 
         {
             ulong value = 0;
@@ -193,7 +535,7 @@ namespace Zettai
             List<GameObject> instanceList = new List<GameObject>(1);
             if (type == DownloadTask.ObjectType.Avatar)
             {
-                bool local = owner == "_PLAYERLOCAL" || string.Equals(owner, MetaPort.Instance.ownerId);
+                bool local = IsLocal(owner);
                 CVRPlayerEntity player = FindPlayerParent(owner, out parent, local);
                 yield return InstantiateAvatar(item, instanceList, id, owner, parent, player, local);
                 instance = instanceList.Count == 0 ? null : instanceList[0];
@@ -220,11 +562,10 @@ namespace Zettai
                 var propData = FindProp(owner);
                 if (propData == null)
                 {
-                    MelonLogger.Error($"Instantiating item {type} failed: ID: '{id}', owner: '{owner}'. Prop data not found. count: { (CVRSyncHelper.Props?.Count.ToString() ?? "-null-")}'.");
+                    MelonLogger.Warning($"Instantiating item {type} failed: ID: '{id}', owner: '{owner}'. Prop data not found. Deleted before loading completed? Prop Count: { (CVRSyncHelper.Props?.Count.ToString() ?? "-null-")}'.");
                     yield break;
                 }
                 parent = new GameObject(owner);
-                //MelonLoader.MelonLogger.Msg($"item: {item != null}, parent: {parent}, owner: {owner}, propData: {propData != null}, {propData?.InstanceId}");
                 yield return InstantiateProp(item, instanceList, owner, parent, propData);
                 instance = instanceList.Count == 0 ? null : instanceList[0];
                 if (!instance)
@@ -244,6 +585,7 @@ namespace Zettai
                 instantiateSemaphore.Release();
             }
         }
+        internal static bool IsLocal(string name) => string.Equals(name, "_PLAYERLOCAL") || string.Equals(name, MetaPort.Instance.ownerId);
 
         private static CVRPlayerEntity FindPlayerParent(string owner, out GameObject parent, bool local)
         {
@@ -360,7 +702,6 @@ namespace Zettai
             }
             ActivateNewGameObject(instance, parent, oldGameObjects, tempParent);
             SetPlayerCapsuleSize(player, instance);
-
         }
 
         private static void ActivateNewGameObject(GameObject instance, GameObject parent, GameObject[] oldGameObjects, GameObject tempParent)
@@ -531,14 +872,15 @@ namespace Zettai
             else
                 PlayerSetup.Instance.SetupAvatar(instance);
         }
-        private static IEnumerator LoadPatch(byte[] b, string id, DownloadTask.ObjectType type, Tags tags, string owner, string FileId, ulong keyHash, DownloadTask job)
+        private static IEnumerator LoadPatch(byte[] bytes, string assetId, DownloadTask.ObjectType type, Tags tags, string owner, string FileId, ulong keyHash, DownloadTask job = null, DownloadData downloadData = null)
         {
             var assetPath = type == DownloadTask.ObjectType.Avatar ? _AVATAR_PATH : _PROP_PATH;
-            if (b == null && type == DownloadTask.ObjectType.Avatar) 
+            if (bytes == null && type == DownloadTask.ObjectType.Avatar) 
             {
                 var item = cachedAssets[BlockedKey];
                 yield return InstantiateItem(item, type, item.AssetId, item.FileId, owner);
-                job.Status = DownloadTask.ExecutionStatus.Failed;
+                if (job != null)
+                    job.Status = DownloadTask.ExecutionStatus.Failed;
                 yield break;
             }
             
@@ -555,45 +897,52 @@ namespace Zettai
             while (!bundleLoadSemaphore.Wait(0))
                 yield return null;
             bool shouldRelease = true;
+            bool shouldUnload = true;
             AssetBundleCreateRequest bundle = null;
             try
             {
-                bundle = AssetBundle.LoadFromMemoryAsync(b);
+                bundle = AssetBundle.LoadFromMemoryAsync(bytes);
                 yield return bundle;
                 if (bundle == null || !bundle.assetBundle)
                     yield break;
                 if (type == DownloadTask.ObjectType.Avatar && owner != "_PLAYERLOCAL" && !CVRPlayerManager.Instance.TryGetConnected(owner))
                     yield break;
-                if (!GetAssetName(assetPath, bundle.assetBundle.GetAllAssetNames(), out string assetName))
+                if (!GetAssetName(assetPath, bundle.assetBundle.GetAllAssetNames(), out string assetName, ref shouldUnload))
                     yield break;
                 AssetBundleRequest asyncAsset;
                 yield return asyncAsset = bundle.assetBundle.LoadAssetAsync(assetName, typeof(GameObject));
                 var gameObject = (GameObject)asyncAsset.asset;
                 if ((bundle?.assetBundle) != null && bundle != null)
                 {
-                    bundle.assetBundle.Unload(false);
+                    if (shouldUnload)
+                        bundle.assetBundle.Unload(false);
                     bundleLoadSemaphore.Release();
                     shouldRelease = false;
                 }
                 var name = GetName(gameObject, FileId);
-                var cacheKey = new CacheKey(id, FileId, keyHash);
-                var item = cachedAssets[cacheKey] = new CacheItem(id, FileId, type, gameObject, tags, name);
+                var cacheKey = new CacheKey(assetId, FileId, keyHash);
+                var item = cachedAssets[cacheKey] = new CacheItem(assetId, FileId, type, gameObject, tags, name, assetName, shouldUnload ? null: bundle.assetBundle);
                 if (enableLog.Value)
-                    MelonLogger.Msg($"Added asset '{type}' with ID '{id}', file ID '{FileId}', game object name '{(gameObject != null ? gameObject.name : "-null-")}', tags: {tags}.");
-                yield return InstantiateItem(item, type, id, FileId, owner, wait: false);
+                    MelonLogger.Msg($"Added asset '{type}' with ID '{assetId}', file ID '{FileId}', game object name '{(gameObject != null ? gameObject.name : "-null-")}', tags: {tags}.");
+                yield return InstantiateItem(item, type, assetId, FileId, owner, wait: false);
             }
             finally
             {
-                if ((bundle?.assetBundle) != null && bundle != null)
+                if (shouldUnload && (bundle?.assetBundle) != null && bundle != null)
                     bundle.assetBundle.Unload(false);
                 if (shouldRelease)
                     bundleLoadSemaphore.Release();
             }
-            job.Status = DownloadTask.ExecutionStatus.Complete;
+            if (job != null)
+                job.Status = DownloadTask.ExecutionStatus.Complete;
+            if (downloadData != null)
+            {
+                downloadData.IsDone = true;
+            }
             yield break;
         }
 
-        private static bool GetAssetName(string expectedName, string[] allAssetNames, out string assetName)
+        private static bool GetAssetName(string expectedName, string[] allAssetNames, out string assetName, ref bool shouldUnload)
         {
             if (allAssetNames == null || allAssetNames.Length == 0)
             {
@@ -601,15 +950,16 @@ namespace Zettai
                 assetName = null;
                 return false;
             }
+            assetName = allAssetNames[0];
             if (allAssetNames.Length > 1)
             {
                 MelonLogger.Warning($"Bundle has multiple assets in it! Names: { string.Join(" ,", allAssetNames) }. Only the first one will be used!");
             }
-            else if (!string.Equals(allAssetNames[0], expectedName))
+            else if (!string.Equals(assetName, expectedName))
             {
-                MelonLogger.Warning($"Bundle's asset name is unexpected! { allAssetNames[0] }. It will be loaded anyway, but this would not work normally!");
+                shouldUnload = assetName.Length < 50; // placeholder check
+                MelonLogger.Warning($"Bundle's asset name is unexpected! { assetName }. It will be loaded anyway, but this would not work normally!");
             }
-            assetName = allAssetNames[0];
             return true;
         }
 
