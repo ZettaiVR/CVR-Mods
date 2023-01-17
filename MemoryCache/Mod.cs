@@ -329,7 +329,7 @@ namespace Zettai
                     yield break;
                 }
                 if (enableLog.Value)
-                    MelonLogger.Msg($"[DL] Cached file decrypt: {dlData.DecryptDone} asset '{type}' with ID '{assetId}'.");
+                    MelonLogger.Msg($"[DL] Cached file decrypt: {dlData.DecryptDone} asset '{type}' with ID '{assetId}'. ");
                 //verify
 
                 yield return VerifyWait(dlData);
@@ -640,7 +640,7 @@ namespace Zettai
             {
                 if (enableLog.Value)
                     MelonLogger.Msg($"Local avatar: owner: '{owner}', MetaPort.Instance.ownerId: {MetaPort.Instance.ownerId}.");
-                yield return item.GetSanitizedAvatar(tempParent, instances, item.Tags, assetId, isLocal: true);
+                yield return item.GetSanitizedAsset(tempParent, DownloadTask.ObjectType.Avatar, instances, item.Tags, assetId, isLocal: true);
                 if (instances.Count == 0 || !instances[0])
                 {
                     MelonLogger.Error($"Instantiating avatar failed: ID: '{assetId}', owner: local.");
@@ -674,7 +674,7 @@ namespace Zettai
                 MelonLogger.Msg($"Avatar hidden, reason: {blockReason}. ID: {assetId}, owner ID: {owner}");
             forceShow = forceShow && avatarVisibility;
             forceHidden = forceHidden && !avatarVisibility;
-            yield return item.GetSanitizedAvatar(tempParent, instances, item.Tags, assetId, isLocal: false, friendsWith: friendsWith, isVisible: avatarVisibility, forceShow: forceShow, forceBlock: forceHidden);
+            yield return item.GetSanitizedAsset(tempParent, DownloadTask.ObjectType.Avatar, instances, item.Tags, assetId, isLocal: false, friendsWith: friendsWith, isVisible: avatarVisibility, forceShow: forceShow, forceBlock: forceHidden);
             if (instances.Count == 0 || !instances[0])
             {
                 MelonLogger.Error($"Instantiating avatar failed: ID: '{assetId}', owner: '{owner}'.");

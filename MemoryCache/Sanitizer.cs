@@ -13,22 +13,25 @@ using static ABI_RC.Core.CVRTools;
 using RootMotion.FinalIK;
 using MagicaCloth;
 using System.Runtime.CompilerServices;
-using System.Collections;
 using UnityEngine.Events;
 
 namespace Zettai
 {
     public static class Sanitizer
     {
-        public static void CleanAvatarGameObject(GameObject avatar, Tags tags, string assetId)
+        public static void CleanPropGameObject(GameObject prop, Tags tags, bool isFriend, bool forceShow, bool forceBlock, bool isVisible)
         {
-            CleanAvatarGameObject(avatar, assetId, 8, true, tags, false, false, false);
+            CleanGameObjectProp(prop, isFriend: isFriend, tags, disableAudio: false, forceShow, forceBlock, isVisible);
+        }
+        public static void CleanAvatarGameObjectLocal(GameObject avatar, Tags tags)
+        {
+            CleanAvatarGameObject(avatar, 8, isFriend: true, isLocal: true, tags, disableAudio: false, forceShow: false, forceBlock: false, isVisible: true);
             PlayerSetup.Instance.avatarTags = tags.AvatarTags;
         }
 
-        public static void CleanAvatarGameObjectNetwork(GameObject avatar, bool isFriend, string assetId, Tags tags, bool forceShow, bool forceBlock, bool isVisible)
+        public static void CleanAvatarGameObjectNetwork(GameObject avatar, Tags tags, bool isFriend, bool forceShow, bool forceBlock, bool isVisible)
         {
-            CleanAvatarGameObject(avatar, assetId, 10, isFriend, tags, false, forceShow, forceBlock, isVisible);
+            CleanAvatarGameObject(avatar, 10, isFriend, isLocal: false, tags, disableAudio: false, forceShow, forceBlock, isVisible);
         }
 
         public struct Permissions
@@ -248,14 +251,13 @@ namespace Zettai
 			}
 		}
 
-        public static void CleanAvatarGameObject(GameObject avatar, string assetId, int layer, bool isFriend, Tags tags, bool disableAudio = false, 
+
+        private static void CleanGameObjectProp(GameObject asset, bool isFriend, Tags tags, bool disableAudio = false,
             bool forceShow = false, bool forceBlock = false, bool isVisible = true)
         {
-            PlayerDescriptor playerDescriptor = avatar.GetComponentInParent<PlayerDescriptor>();
-            CVRAvatar cvrAvatar = avatar.GetComponent<CVRAvatar>();
-            Permissions p = new Permissions(tags, disableAudio, isFriend, forceShow);
+            var p = new Permissions(tags, disableAudio, isFriend, forceShow);
+            var propComponent = asset.GetComponent<CVRSpawnable>();
 
-            ApplyAdvancedTags(cvrAvatar, assetId, ref p);
             bool hide = p.Hide && isVisible;
             if (forceShow)
                 hide = false;
@@ -264,16 +266,15 @@ namespace Zettai
             if (!MetaPort.Instance.matureContentAllowed && (tags.Nudity || tags.Gore))
                 hide = true;
 
-            SanitizeGameObject(avatar, hide ? AssetType.HiddenAvatar : AssetType.Avatar, out var allowedTypes);
-            bool playerlocal = playerDescriptor != null && !string.IsNullOrEmpty(playerDescriptor.ownerId) && playerDescriptor.ownerId[0] == '_';
-            ApplyBlockedAvatar(avatar, out CVRBlockedAvatarController cvrBlockedAvatarController);
-            Animator animator = avatar.GetComponent<Animator>();
+            SanitizeGameObject(asset, hide ? AssetType.HiddenAvatar : AssetType.Avatar, out var allowedTypes);
+            ApplyBlockedAvatar(asset, out CVRBlockedAvatarController cvrBlockedAvatarController);
+            var animator = asset.GetComponent<Animator>();
             Transform hips = null;
             if (animator != null && animator.avatar && animator.avatar.isHuman)
             {
                 hips = animator.GetBoneTransform(HumanBodyBones.Hips);
             }
-            ProcessComponents(allowedTypes, assetId, layer, cvrAvatar, p, hide, p.Audio, playerlocal, hips);
+            ProcessComponents(allowedTypes, -1, null, p, hide, p.Audio, false, hips, asset);
             if (p.CustomShaders)
             {
                 var renderers = from comp in components where comp is Renderer select (comp as Renderer);
@@ -283,18 +284,70 @@ namespace Zettai
 
             if (!forceShow && ((isFriend && ExperimentalAdvancedSafetyFilterFriends) || !isFriend))
             {
-                CVRTools.CleanGameObject(avatar.gameObject);
+                CVRTools.CleanGameObject(asset.gameObject);
+            }
+            if (p.PhysicsCollidersEnabled) // but when not?
+                SetGameObjectLayerFromList(9);
+
+            ReplaceGameObjectLayerProp(asset);
+            transforms.Clear();
+        }
+        private static void ReplaceGameObjectLayerProp(GameObject prop) 
+        {
+            if (!prop)
+                return;
+            if (prop.layer == 15)
+                prop.layer = 0;
+            foreach (var transform in transforms)
+                if (transform && transform.gameObject && transform.gameObject.layer == 15)
+                    transform.gameObject.layer = 0;
+        }
+        public static void CleanAvatarGameObject(GameObject asset, int layer, bool isFriend, bool isLocal, Tags tags, bool disableAudio = false, 
+            bool forceShow = false, bool forceBlock = false, bool isVisible = true)
+        {
+            var p = new Permissions(tags, disableAudio, isFriend, forceShow);
+            CVRAvatar cvrAvatar = asset.GetComponent<CVRAvatar>();
+
+            ApplyAdvancedTags(cvrAvatar.advancedTaggingList, ref p);
+
+            bool hide = p.Hide && isVisible;
+            if (forceShow)
+                hide = false;
+            if (forceBlock)
+                hide = true;
+            if (!MetaPort.Instance.matureContentAllowed && (tags.Nudity || tags.Gore))
+                hide = true;
+
+            SanitizeGameObject(asset, hide ? AssetType.HiddenAvatar : AssetType.Avatar, out var allowedTypes);
+            ApplyBlockedAvatar(asset, out CVRBlockedAvatarController cvrBlockedAvatarController);
+            var animator = asset.GetComponent<Animator>();
+            Transform hips = null;
+            if (animator != null && animator.avatar && animator.avatar.isHuman)
+            {
+                hips = animator.GetBoneTransform(HumanBodyBones.Hips);
+            }
+            ProcessComponents(allowedTypes, layer, cvrAvatar, p, hide, p.Audio, isLocal, hips, asset);
+            if (p.CustomShaders)
+            {
+                var renderers = from comp in components where comp is Renderer select (comp as Renderer);
+                ReplaceShaders(renderers);
+            }
+            bool ExperimentalAdvancedSafetyFilterFriends = MetaPort.Instance.settings.GetSettingsBool("ExperimentalAdvancedSafetyFilterFriends");
+
+            if (!forceShow && ((isFriend && ExperimentalAdvancedSafetyFilterFriends) || !isFriend))
+            {
+                CVRTools.CleanGameObject(asset.gameObject);
             }
             if (hide)
-                HideAvatar(avatar, cvrBlockedAvatarController, animator, cvrAvatar);
+                HideAvatar(asset, cvrBlockedAvatarController, animator, cvrAvatar);
             SetGameObjectLayerFromList(layer);
             transforms.Clear();
             if (layer == 10)
             {
-                CVRTools.PlaceHapticsTriggersAndPointers(avatar);
+                PlaceHapticsTriggersAndPointers(asset);
             }
-            CVRTools.GenerateDefaultPointer(avatar, layer);
-            ABI_RC.Core.Util.AssetFiltering.AssetFilter.OnAvatarCleaned.Invoke(avatar);
+            GenerateDefaultPointer(asset, layer);
+            AssetFilter.OnAvatarCleaned.Invoke(asset);
         }
 
         private static void ReplaceShaders(IEnumerable<Renderer> renderers)
@@ -375,7 +428,7 @@ namespace Zettai
             transforms.Clear();
             rectTransforms.Clear();
         }
-        private static void ProcessComponents(HashSet<Type> allowedTypes, string assetId, int layer, CVRAvatar cvrAvatar, Permissions p, bool hide, bool removeAudio, bool local, Transform hips)
+        private static void ProcessComponents(HashSet<Type> allowedTypes, int layer, CVRAvatar cvrAvatar, Permissions p, bool hide, bool removeAudio, bool isLocal, Transform hips, GameObject root)
         {
             ulong particleCount = 0;
             int audioSourceCount = 0;
@@ -403,16 +456,28 @@ namespace Zettai
                     SanitizeUnityEvents(vrik.solver.locomotion.onLeftFootstep, allowedTypes);
                     SanitizeUnityEvents(vrik.solver.locomotion.onRightFootstep, allowedTypes);
                 }
+                if (component is UnityEngine.UI.Toggle toggle)
+                {
+                    SanitizeUnityEvents(toggle.onValueChanged, allowedTypes);
+                }
+                if (component is UnityEngine.UI.Dropdown dropdown)
+                {
+                    SanitizeUnityEvents(dropdown.onValueChanged, allowedTypes);
+                }
+                if (component is UnityEngine.UI.Button button)
+                {
+                    SanitizeUnityEvents(button.onClick, allowedTypes);
+                }
                 if (hide)
                     continue;
                 Type type = component.GetType();
-                if (CheckTypes(type, component, layer, p, removeAudio, ref audioSourceCount))
+                if (CheckTypes(type, component, layer, p, removeAudio, allowedTypes, ref audioSourceCount))
                     continue;
-                if (CheckLists(type, component, layer, cvrAvatar, p, local, hips, ref particleCount))
+                if (CheckLists(type, component, layer, cvrAvatar, p, isLocal, hips, ref particleCount))
                     continue;
             }
             if ((audioSourceCount > 0 || particleCount > 0) && MemoryCache.enableLog.Value)
-                MelonLoader.MelonLogger.Msg($"Avatar on '{cvrAvatar.transform.root.name}': audioSourceCount: '{audioSourceCount}', particleCount: '{particleCount}' \r\n");
+                MelonLoader.MelonLogger.Msg($"Avatar on '{root.name}': audioSourceCount: '{audioSourceCount}', particleCount: '{particleCount}' \r\n");
         }
         private static void SanitizeUnityEvents(UnityEventBase unityEvent, HashSet<Type> allowedTypes)
         {
@@ -471,9 +536,7 @@ namespace Zettai
                     animationClip.events = Array.Empty<AnimationEvent>();
             }
         }
-        private static void SetLayer(int layer, Component component) => component.gameObject.layer = layer;
-
-        private static bool CheckTypes(Type type, Component component, int layer, Permissions p, bool removeAudio, ref int audioSourceCount) 
+        private static bool CheckTypes(Type type, Component component, int layer, Permissions p, bool removeAudio, HashSet<Type> allowedTypes, ref int audioSourceCount) 
         {
             switch (component)
             {
@@ -526,10 +589,57 @@ namespace Zettai
                         cVRPointer.isLocalPointer = true;
                         break;
                     }
+                case CVRInteractable interactable:
+                    interactableActionsRemove.Clear();
+                    for (int i = 0; i < interactable.actions.Count; i++)
+                    {
+                        var action = interactable.actions[i];
+                        action.execType = CVRInteractableAction.ExecutionType.LocalNotNetworked;
+                        if (!validInteractableAction.Contains(action.actionType))
+                            interactableActionsRemove.Add(action);
+                        interactableOperaitonsRemove.Clear();
+                        foreach (var operation in action.operations)
+                        {
+                            if (operation.type == CVRInteractableActionOperation.ActionType.SpawnObject)
+                            {
+                                interactableOperaitonsRemove.Add(operation);
+                                continue;
+                            }
+                            SanitizeUnityEvents(operation.customEvent, allowedTypes);
+                        }
+                        foreach (var item in interactableOperaitonsRemove)
+                        {
+                            action.operations.Remove(item);
+                        }
+                        interactableOperaitonsRemove.Clear();
+                    }
+                    for (int i = 0; i < interactableActionsRemove.Count; i++)
+                    {
+                        interactable.actions.Remove(interactableActionsRemove[i]);
+                    }
+                    interactableActionsRemove.Clear();
+                    break;
             }
             return false;
         }
-        private static bool CheckLists(Type type, Component component, int layer, CVRAvatar cvrAvatar, Permissions p, bool local, Transform hips, ref ulong particleCount) 
+        private static readonly HashSet<CVRInteractableAction.ActionRegister> validInteractableAction = new HashSet<CVRInteractableAction.ActionRegister>
+        {
+            CVRInteractableAction.ActionRegister.OnInteractDown,
+            CVRInteractableAction.ActionRegister.OnInteractUp,
+            CVRInteractableAction.ActionRegister.OnGrab,
+            CVRInteractableAction.ActionRegister.OnDrop,
+            CVRInteractableAction.ActionRegister.OnCustomTrigger,
+            CVRInteractableAction.ActionRegister.OnInputDown,
+            CVRInteractableAction.ActionRegister.OnInputUp,
+            CVRInteractableAction.ActionRegister.OnAPFTrigger,
+            CVRInteractableAction.ActionRegister.OnAPFBoolChange,
+            CVRInteractableAction.ActionRegister.OnAPFFloatChange,
+            CVRInteractableAction.ActionRegister.OnAPFIntChange ,
+            CVRInteractableAction.ActionRegister.OnAPFStringChange,
+        };
+        private static readonly List<CVRInteractableAction> interactableActionsRemove = new List<CVRInteractableAction>();
+        private static readonly List<CVRInteractableActionOperation> interactableOperaitonsRemove = new List<CVRInteractableActionOperation>();
+        private static bool CheckLists(Type type, Component component, int layer, CVRAvatar cvrAvatar, Permissions p, bool isLocal, Transform hips, ref ulong particleCount)
         {
             if (SharedFilter._allowedDynamicsColliderComponents.Contains(type))
             {
@@ -547,7 +657,7 @@ namespace Zettai
             {
                 if (p.Lights)
                     RemoveComponent(component, type);
-                return true; 
+                return true;
             }
             if (SharedFilter._colliderComponents.Contains(type))
             {
@@ -556,6 +666,8 @@ namespace Zettai
                     RemoveComponent(component, type);
                     return true;
                 }
+                if (!cvrAvatar)
+                    return true;
                 Collider collider = (Collider)component;
                 if (collider.isTrigger)
                 {
@@ -613,7 +725,7 @@ namespace Zettai
             }
             if (SharedFilter._rendererComponents.Contains(type))
             {
-                if (local && Hologram)
+                if (isLocal && Hologram)
                 {
                     try
                     {
@@ -631,38 +743,39 @@ namespace Zettai
                             MelonLoader.MelonLogger.Msg("Renderer Material could not be changed.");
                     }
                 }
-            }
-            if (SharedFilter._allowedDynamicsComponents.Contains(type))
-            {
-                if (p.DynamicBone)
-                {
-                    RemoveComponent(component, type);
-                    return true;
-                }
-                if (component is DynamicBone || layer != 8 && layer != 9)
-                    return true;
-                switch (component)
-                {
-                    case MagicaBoneCloth boneCloth:
-                        boneCloth.activeDuringSetup = boneCloth.enabled;
-                        boneCloth.enabled = false;
-                        break;
-                    case MagicaMeshCloth meshCloth:
-                        meshCloth.activeDuringSetup = meshCloth.enabled;
-                        meshCloth.enabled = false;
-                        break;
-                    case MagicaBoneSpring boneSpring:
-                        boneSpring.activeDuringSetup = boneSpring.enabled;
-                        boneSpring.enabled = false;
-                        break;
-                    case MagicaMeshSpring clothSpring:
-                        clothSpring.activeDuringSetup = clothSpring.enabled;
-                        clothSpring.enabled = false;
-                        break;
-                }
                 return true;
             }
-            return false;
+            if (!SharedFilter._allowedDynamicsComponents.Contains(type))
+            {
+                return false;
+            }
+            if (p.DynamicBone)
+            {
+                RemoveComponent(component, type);
+                return true;
+            }
+            if (component is DynamicBone || layer != 8 && layer != 9)
+                return true;
+            switch (component)
+            {
+                case MagicaBoneCloth boneCloth:
+                    boneCloth.activeDuringSetup = boneCloth.enabled;
+                    boneCloth.enabled = false;
+                    break;
+                case MagicaMeshCloth meshCloth:
+                    meshCloth.activeDuringSetup = meshCloth.enabled;
+                    meshCloth.enabled = false;
+                    break;
+                case MagicaBoneSpring boneSpring:
+                    boneSpring.activeDuringSetup = boneSpring.enabled;
+                    boneSpring.enabled = false;
+                    break;
+                case MagicaMeshSpring clothSpring:
+                    clothSpring.activeDuringSetup = clothSpring.enabled;
+                    clothSpring.enabled = false;
+                    break;
+            }
+            return true;
         }
         private static void HideAvatar(GameObject avatar, CVRBlockedAvatarController cvrBlockedAvatarController, Animator animator, CVRAvatar cvrAvatar)
         {
@@ -707,18 +820,27 @@ namespace Zettai
         private static Vector3 GetScale(float viewHeight, Vector3 scale) => new Vector3(viewHeight / scale.x, viewHeight / scale.y, viewHeight / scale.z);
 
         private static void ApplyBlockedAvatar(GameObject avatar, out CVRBlockedAvatarController cvrBlockedAvatarController) => cvrBlockedAvatarController = (CVRBlockedAvatarController)avatar.GetComponent(typeof(CVRBlockedAvatarController));
-
-        private static void TagHandledByAdvancedTagging(CVRAvatar avatar, string assetId, int i) => avatar.ApplyFilterByTag(assetId, (CVRAvatarAdvancedTaggingEntry.Tags)(1 << i));
-        private static void ApplyAdvancedTags(CVRAvatar cvrAvatar, string assetId, ref Permissions p)
+        private static void ApplyAdvancedTags(List<CVRAvatarAdvancedTaggingEntry> advancedTaggingList, ref Permissions p)
         {
             for (int i = 0; i < 9; i++)
                 if (p.GetValue(i))
                 {
-                    TagHandledByAdvancedTagging(cvrAvatar, assetId, i);
+                    ApplyFilterByTag((CVRAvatarAdvancedTaggingEntry.Tags)(1 << i), advancedTaggingList);
                     p.SetValue(i, false);
                 }
         }
-
+        private static void ApplyFilterByTag(CVRAvatarAdvancedTaggingEntry.Tags tag, List<CVRAvatarAdvancedTaggingEntry> advancedTaggingList)
+        {
+            foreach (CVRAvatarAdvancedTaggingEntry entry in advancedTaggingList)
+            {
+                if (!entry.tags.HasFlag(tag))
+                    continue;
+                if (entry.gameObject != null)
+                    UnityEngine.Object.Destroy(entry.gameObject);
+                if (entry.fallbackGameObject != null)
+                    entry.fallbackGameObject.SetActive(value: true);
+            }
+        }
         public enum AssetType
         {
             Avatar = 1,
@@ -1012,6 +1134,7 @@ namespace Zettai
         private static readonly IReadOnlyList<Type> forgottenTypesProps = new Type[]
         {
             typeof(CVRMaterialDriver),
+            typeof(CVRVideoPlayer),
         };
         private static bool Hologram => MemoryCache.enableHologram.Value;
         private static System.Reflection.Assembly[] allAssemblies = null;
@@ -1022,7 +1145,6 @@ namespace Zettai
         private static readonly List<RectTransform> rectTransforms = new List<RectTransform>(1000);
         private static readonly List<Component> components = new List<Component>(1000);
         private static readonly List<Component> componentsOnGo = new List<Component>(10);
-        private static readonly List<Material> materials = new List<Material>(1000);
         private static readonly HashSet<Type> matchingTypes = new HashSet<Type>();
         private static readonly HashSet<Type> greyList = new HashSet<Type>();
         private static readonly Dictionary<string, IEnumerable<Type>> typeNameCache = new Dictionary<string, IEnumerable<Type>>();

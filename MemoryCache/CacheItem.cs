@@ -59,7 +59,7 @@ namespace Zettai
             age = now - lastRefRemoved;
             return !ReadOnly && InstanceCount == 0 && age > maxAge;
         }
-        public IEnumerator GetSanitizedAvatar(GameObject parent, List<GameObject> instances, Tags tags, string assetId, 
+        public IEnumerator GetSanitizedAsset(GameObject parent, DownloadTask.ObjectType type, List<GameObject> instances, Tags tags, string assetId, 
             bool isLocal, bool friendsWith = false, bool isVisible = true,
             bool forceShow = false, bool forceBlock = false)
         {
@@ -75,16 +75,28 @@ namespace Zettai
             yield return new WaitForEndOfFrame();
             if (MemoryCache.enableOwnSanitizer.Value)
             {
-                if (isLocal)
-                    Sanitizer.CleanAvatarGameObject(instance, tags, assetId);
-                else
-                    Sanitizer.CleanAvatarGameObjectNetwork(instance, friendsWith, assetId, tags, forceShow, forceBlock, isVisible);
+                if (type == DownloadTask.ObjectType.Avatar)
+                {
+                    if (isLocal)
+                        Sanitizer.CleanAvatarGameObjectLocal(instance, tags);
+                    else
+                        Sanitizer.CleanAvatarGameObjectNetwork(instance, tags, friendsWith, forceShow, forceBlock, isVisible);
+                }
+                else if (type == DownloadTask.ObjectType.Prop) 
+                {
+                    Sanitizer.CleanPropGameObject(instance, tags, friendsWith, forceShow, forceBlock, isVisible);
+                }
             }
             else
             {
-                if (MemoryCache.enableLog.Value)
-                    MelonLoader.MelonLogger.Msg($"assetId {assetId}, instance {instance}, layer {(isLocal ? 8: 10)}, isFriend {isLocal || friendsWith}, isVisible {isVisible}, forceShow {forceShow}, forceBlock {forceBlock}");
-                ABI_RC.Core.Util.AssetFiltering.AssetFilter.FilterAvatar(assetId, instance, tags.AvatarTags, isLocal ? 8 : 10, isLocal || friendsWith, isVisible, forceShow, forceBlock);
+                if (type == DownloadTask.ObjectType.Avatar)
+                {
+                    if (MemoryCache.enableLog.Value)
+                        MelonLoader.MelonLogger.Msg($"assetId {assetId}, instance {instance}, layer {(isLocal ? 8 : 10)}, isFriend {isLocal || friendsWith}, isVisible {isVisible}, forceShow {forceShow}, forceBlock {forceBlock}");
+                    ABI_RC.Core.Util.AssetFiltering.AssetFilter.FilterAvatar(assetId, instance, tags.AvatarTags, isLocal ? 8 : 10, isLocal || friendsWith, isVisible, forceShow, forceBlock);
+                }
+                else if (type == DownloadTask.ObjectType.Prop)
+                    ABI_RC.Core.Util.AssetFiltering.AssetFilter.FilterProp(assetId, instance, tags.PropTags, isFriend: friendsWith, isVisible: isVisible, forceShow: forceShow, forceBlock: forceBlock);
             }
             SetAudioMixer(instance);
             AddInstance(instance);
