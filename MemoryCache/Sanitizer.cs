@@ -411,23 +411,6 @@ namespace Zettai
                 if (item && item.gameObject)
                     item.gameObject.layer = layer;
         }
-        private static void SetGameObjectLayerRecursive(GameObject avatar, int layer)
-        {
-            transforms.Clear();
-            rectTransforms.Clear();
-            avatar.GetComponentsInChildren(true, transforms);
-            avatar.GetComponentsInChildren(true, rectTransforms);
-            foreach (var item in transforms)
-            {
-                item.gameObject.layer = layer;
-            }
-            foreach (var item in rectTransforms)
-            {
-                item.gameObject.layer = layer;
-            }
-            transforms.Clear();
-            rectTransforms.Clear();
-        }
         private static void ProcessComponents(HashSet<Type> allowedTypes, int layer, CVRAvatar cvrAvatar, Permissions p, bool hide, bool removeAudio, bool isLocal, Transform hips, GameObject root)
         {
             ulong particleCount = 0;
@@ -1010,7 +993,6 @@ namespace Zettai
             tempComponentDependency.Clear();
             return deps;
         }
-        private static List<ComponentDependency> tempComponentDependency = new List<ComponentDependency>();
         private static HashSet<Type> GetAllowedTypesHashSet(AssetType assetType)
         {
             if (allowedTypesDict.TryGetValue(assetType, out HashSet<Type> set))
@@ -1142,7 +1124,8 @@ namespace Zettai
         private static readonly Type transformType = typeof(Transform);
         private static readonly StringBuilder removedComponents = new StringBuilder(10 * 1024);
         private static readonly List<Transform> transforms = new List<Transform>(1000);
-        private static readonly List<RectTransform> rectTransforms = new List<RectTransform>(1000);
+        private static readonly List<ComponentDependency> tempComponentDependency = new List<ComponentDependency>();
+        //private static readonly List<RectTransform> rectTransforms = new List<RectTransform>(1000);
         private static readonly List<Component> components = new List<Component>(1000);
         private static readonly List<Component> componentsOnGo = new List<Component>(10);
         private static readonly HashSet<Type> matchingTypes = new HashSet<Type>();

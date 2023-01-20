@@ -1,6 +1,6 @@
 ﻿using ABI_RC.Core.IO;
 using ABI_RC.Core.Networking.API.Responses;
-using System.Net;
+using System.Threading;
 
 namespace Zettai
 {
@@ -10,12 +10,14 @@ namespace Zettai
         public bool DownloadDone { get; set; }
         public bool ReadyToInstantiate { get; set; }
         public bool Failed => FileReadFailed || DecryptFailed || VerifyFailed;
+        public int PercentageComplete { get; internal set; }
         public byte[] rawData;
         public byte[] decryptedData;
         public string filePath;
         public string calculatedHash;
         public readonly bool isLocal;
         public readonly bool joinOnComplete;
+        public readonly byte[] rawKey;
         public readonly ulong fileSize;
         public readonly string assetId;
         public readonly string assetUrl;
@@ -38,52 +40,23 @@ namespace Zettai
         public volatile bool DecryptFailed = false;
         public volatile bool VerifyFailed = false;
         public volatile bool Verified = false;
-        private readonly ABI_RC.Core.InteractionSystem.CVRLoadingAvatarController loadingController;
 
-        private readonly WebClient client = new WebClient();
-        private int percentageComplete = 0;
-        private int previousPercentageComplete = 0;
+        public volatile Status status = Status.None;
 
-        public void DownloadFile()
-        {
-            client.DownloadProgressChanged += Client_DownloadProgressChanged;
-            client.DownloadDataCompleted += new DownloadDataCompletedEventHandler(DownloadFileCompleted);
-            client.DownloadDataAsync(new System.Uri(assetUrl));
-        }
+        public CancellationToken cancellationToken = new CancellationToken();
+        internal long prevDownloaded = 0;
+        internal int rateLimit = 0;
 
-        private void Client_DownloadProgressChanged(object sender, DownloadProgressChangedEventArgs e)
+        public DownloadData(string AssetId, byte[] RawData, byte[] FileKey)
         {
-            var p = e.ProgressPercentage;
-            p /= 5;
-            p *= 5;
-            percentageComplete = p;
-        }
-        internal void UpdateLoadingAvatar()
-        {
-            if (!loadingController)
-            {
-                return;
-            }
-            if (percentageComplete == previousPercentageComplete)
-                return;
-            previousPercentageComplete = percentageComplete;
-            if (!FileCache.PercentageText.TryGetValue(percentageComplete, out var text))
-                text = $"{percentageComplete} %";
-            loadingController.textMesh.text = text;
-            loadingController.textMesh.ForceMeshUpdate(forceTextReparsing: true);
-        }
-        private void DownloadFileCompleted(object sender, DownloadDataCompletedEventArgs e)
-        {
-            if (e.Error == null)
-            {
-                DownloadDone = true;
-                rawData = e.Result;
-            }
-            client?.Dispose();
+            assetId = AssetId;
+            rawData = RawData;
+            rawKey = FileKey;
+            fileSize = (ulong)RawData?.Length;
         }
 
         public DownloadData(string AssetId, DownloadTask.ObjectType Type, string AssetUrl, string FileId, long FileSize, string FileKey, string FileHash,
-            bool JoinOnComplete, UgcTagsData TagsData, string Target, string FilePath, ABI_RC.Core.InteractionSystem.CVRLoadingAvatarController loadingAvatarController)
+            bool JoinOnComplete, UgcTagsData TagsData, string Target, string FilePath, int downloadLimit)
         {
             joinOnComplete = JoinOnComplete;
             assetId = AssetId;
@@ -97,16 +70,30 @@ namespace Zettai
             type = Type;
             tags = new Tags(TagsData);
             isLocal = MemoryCache.IsLocal(target);
-            loadingController = loadingAvatarController;
             IsDone = false;
             Verified = false;
             DownloadDone = false;
             ReadyToInstantiate = false;
+            rateLimit = downloadLimit; // Bytes/sec
         }
-
-        internal void Destroy()
+        public enum Status 
         {
-            client?.Dispose();
+            None,
+            NotStarted,
+            DownloadQueued,
+            Downloading,
+            LoadingFromFileQueued,
+            LoadingFromFile,
+            HashingQueued,
+            Hashing,
+            DecryptingQueued,
+            Decrypting,
+            BundleVerifierQueued,
+            BundleVerifier,
+            LoadingBundleQueued,
+            LoadingBundle,
+            Done,
+            Error
         }
     }
 }

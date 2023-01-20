@@ -41,6 +41,10 @@
     <Reference Include="Assembly-CSharp-public">
       <HintPath>C:\Program Files (x86)\Steam\steamapps\common\ChilloutVR\ChilloutVR_Data\Managed\Assembly-CSharp-public.dll</HintPath>
     </Reference>
+    <Reference Include="Crc32.NET, Version=1.0.0.0, Culture=neutral, PublicKeyToken=dc0b95cf99bf4e99, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\ChilloutVR\ChilloutVR_Data\Managed\Crc32.NET.dll</HintPath>
+    </Reference>
     <Reference Include="MagicaCloth, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
       <HintPath>C:\Program Files (x86)\Steam\steamapps\common\ChilloutVR\ChilloutVR_Data\Managed\MagicaCloth.dll</HintPath>
@@ -93,8 +97,10 @@
   <ItemGroup>
     <Compile Include="CacheItem.cs" />
     <Compile Include="CacheKey.cs" />
+    <Compile Include="FastCVRDecrypt.cs" />
     <Compile Include="DownloadData.cs" />
     <Compile Include="FileCache.cs" />
+    <Compile Include="LoadTask.cs" />
     <Compile Include="Mod.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Sanitizer.cs" />
