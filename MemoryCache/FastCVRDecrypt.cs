@@ -45,8 +45,9 @@ namespace Zettai
                 this.sourceIsKey = sourceIsKey;
             }
         }
+        private const long RANDOM_START = 0x3FFFFFEFFFFFFF;
         private uint crc;
-        private long randStart = 0x3FFFFFEFFFFFFF;
+        private long randStart = RANDOM_START;
         private uint fragSize = 8000u;
         private readonly List<Step> steps = new List<Step>(100);
         private long Rand()
@@ -56,13 +57,13 @@ namespace Zettai
         private byte[] guidBytes = new byte[36];
         public unsafe byte[] Decrypt(string guid, byte[] bytes, byte[] keyFrag)
         {
-            randStart = 0x3FFFFFEFFFFFFF;
+            randStart = RANDOM_START;
             if (guidBytes.Length != guid.Length)
                 guidBytes = new byte[guid.Length];
+
             for (int i = 0; i < guid.Length; i++)
-            {
                 guidBytes[i] = (byte)guid[i];
-            }
+
             crc = Crc32Algorithm.Compute(guidBytes);
             var originalLength = bytes.Length;
             var newLength = originalLength + 1000;

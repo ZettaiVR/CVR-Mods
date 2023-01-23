@@ -1,6 +1,4 @@
-﻿using ABI_RC.Core.IO;
-using ABI_RC.Core.Savior;
-using ABI_RC.Systems.Safety.BundleVerifier;
+﻿using ABI_RC.Systems.Safety.BundleVerifier;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -17,7 +15,7 @@ namespace Zettai
 
         private static volatile int downloadCountMax = 5;
         private static readonly SemaphoreSlim downloadCounter = new SemaphoreSlim(0, 32);
-        private static readonly Dictionary<DownloadTask.ObjectType, (string path, string extention, DirectoryInfo directoryInfo)> names = new Dictionary<DownloadTask.ObjectType, (string path, string extention, DirectoryInfo directoryInfo)>(3);
+        private static readonly Dictionary<AssetType, (string path, string extention, DirectoryInfo directoryInfo)> names = new Dictionary<AssetType, (string path, string extention, DirectoryInfo directoryInfo)>(3);
         private static readonly System.Collections.Concurrent.ConcurrentQueue<DownloadData> DiskWriteQueue = new System.Collections.Concurrent.ConcurrentQueue<DownloadData>();
         private static readonly System.Collections.Concurrent.ConcurrentQueue<DownloadData> DiskReadQueue = new System.Collections.Concurrent.ConcurrentQueue<DownloadData>();
         private static readonly System.Collections.Concurrent.ConcurrentQueue<DownloadData> DownloadQueue = new System.Collections.Concurrent.ConcurrentQueue<DownloadData>();
@@ -27,7 +25,7 @@ namespace Zettai
         private static readonly HashSet<FileInfo> FilesToDelete = new HashSet<FileInfo>();
         private static readonly List<Thread> threads = new List<Thread>();
         private static volatile bool AbortThreads = false;
-        const int sleepTime = 5;
+        const int sleepTime = 1;
 
         internal static void SetMaxDownloadCount(int value) => downloadCountMax = value;
         internal static bool InitDone { get; private set; } = false;
@@ -46,7 +44,7 @@ namespace Zettai
             }
             FilesToDelete.Clear();
         }
-        internal static FileCheck FileExists(DownloadTask.ObjectType type, string assetId, string fileId)
+        internal static FileCheck FileExists(AssetType type, string assetId, string fileId)
         {
             var (path, extention, directory) = names[type];
             if (File.Exists($"{path}\\{assetId}-{fileId}.{extention}"))
@@ -57,36 +55,33 @@ namespace Zettai
             FilesToDelete.UnionWith(fileInfos);
             return FileCheck.ExistsDifferentVersion;
         }
-        internal static string GetFileCachePath(DownloadTask.ObjectType type, string assetId, string fileId)
+        internal static string GetFileCachePath(AssetType type, string assetId, string fileId)
         {
             var (path, extention, _) = names[type];
             return $"{path}\\{assetId}-{fileId}.{extention}";
         }
         private static void DecryptThread()
         {
+            var sw = new System.Diagnostics.Stopwatch();
             var decrypt = new FastCVRDecrypt();
             while (!AbortThreads)
             {
                 Thread.Sleep(sleepTime);
-                if (!DecryptQueue.TryDequeue(out var result))
+                if (!DecryptQueue.TryDequeue(out var result) || result == null)
                     continue;
 
                 try
                 {
+                    sw.Restart();
                     result.status = DownloadData.Status.Decrypting;
                     var size = result.fileSize;
-                    var sw = new System.Diagnostics.Stopwatch();
-                    sw.Start();
 
-                    var key = result.rawKey ?? DownloadManagerHelperFunctions.ConvertToFileKey(result.fileKey);
+                    var key = result.rawKey ?? ABI_RC.Core.IO.DownloadManagerHelperFunctions.ConvertToFileKey(result.fileKey);
                     result.decryptedData = decrypt.Decrypt(result.assetId, result.rawData, key);
                     result.DecryptDone = true;
 
-                    sw.Stop();
 
                     var last = sw.Elapsed;
-                    if (MemoryCache.enableLog.Value)
-                        MelonLoader.MelonLogger.Msg($"Decrypt: {last.TotalMilliseconds} ms, {size / 1024f / 1024f} MB ");
                     /*
                     // test against the original
 
@@ -100,28 +95,42 @@ namespace Zettai
                 }
                 catch (Exception e)
                 {
+                    sw.Stop();
                     MelonLoader.MelonLogger.Error($"Decrypt failed! '{e.Message}' ");
                     result.DecryptFailed = true;
+                }
+                finally
+                {
+                    sw.Stop();
+                    result.DecryptTime = sw.Elapsed;
                 }
             }
         }
         private static void WriteToDiskThread()
         {
+            var sw = new System.Diagnostics.Stopwatch();
             while (!AbortThreads)
             {
                 Thread.Sleep(sleepTime);
-                if (!DiskWriteQueue.TryDequeue(out var result))
+                if (!DiskWriteQueue.TryDequeue(out var result) || result == null)
                     continue;
 
                 try
                 {
+                    sw.Restart();
                     File.WriteAllBytes(result.filePath, result.rawData);
                     result.FileWriteDone = true;
                 }
                 catch (Exception e)
                 {
+                    sw.Stop();
                     MelonLoader.MelonLogger.Error($"FileWrite failed! '{e.Message}' ");
                     result.FileWriteFailed = true;
+                }
+                finally
+                {
+                    sw.Stop();
+                    result.FileWriteTime = sw.Elapsed;
                 }
             }
         }
@@ -131,7 +140,7 @@ namespace Zettai
 
         private static async void DownloadAsync(DownloadData data, HttpClient client) 
         {
-            HttpResponseMessage httpResponseMessage = client.GetAsync(data.assetUrl, HttpCompletionOption.ResponseHeadersRead).Result;
+            var httpResponseMessage = client.GetAsync(data.assetUrl, HttpCompletionOption.ResponseHeadersRead).Result;
             if (!httpResponseMessage.IsSuccessStatusCode)
             {
                 MelonLoader.MelonLogger.Error($"Download failed! '{httpResponseMessage.StatusCode}' ");
@@ -178,10 +187,10 @@ namespace Zettai
                         if (time == 0d || time >= actualTimeLimit)
                             continue;
 
-                        var sleepTime = actualTimeLimit - time;
+                        var _sleepTime = actualTimeLimit - time;
                         try
                         {
-                            var timespan = new TimeSpan((long)(sleepTime * 10000));
+                            var timespan = new TimeSpan((long)(_sleepTime * 10000));
                             await System.Threading.Tasks.Task.Delay(timespan);
                         }
                         catch (ThreadAbortException) { }
@@ -191,60 +200,76 @@ namespace Zettai
             }
             downloadCounter.Release();
         }
-        
         private static void DownloadThread()
         {
+            var sw = new System.Diagnostics.Stopwatch();
             using (var _httpClient = new HttpClient())
                 while (!AbortThreads)
                 {
                     Thread.Sleep(sleepTime);
                     if (!DownloadQueue.TryDequeue(out var result))
                         continue;
-
                     try
                     {
+                        sw.Restart();
                         DownloadAsync(result, _httpClient);
                     }
                     catch (Exception e)
                     {
+                        sw.Stop();
                         MelonLoader.MelonLogger.Error($"Download failed! '{e.Message}' ");
                         result.FileWriteFailed = true;
+                    }
+                    finally 
+                    {
+                        sw.Stop();
+                        result.DownloadTime = sw.Elapsed;
                     }
                 }
         }
 
         private static void ReadFromDiskThread()
         {
+            var sw = new System.Diagnostics.Stopwatch();
             while (!AbortThreads)
             {
                 Thread.Sleep(sleepTime);
-                if (!DiskReadQueue.TryDequeue(out var result) || result.FileReadFailed)
+                if (!DiskReadQueue.TryDequeue(out var result) || result == null || result.FileReadFailed)
                     continue;
 
                 try
                 {
+                    sw.Restart();
                     result.status = DownloadData.Status.LoadingFromFile;
                     result.rawData = File.ReadAllBytes(result.filePath);
                     result.FileReadDone = true;
                 }
                 catch (Exception e)
                 {
+                    sw.Stop();
                     MelonLoader.MelonLogger.Error($"FileRead failed! '{e.Message}' ");
                     result.FileReadFailed = true;
+                }
+                finally
+                {
+                    sw.Stop();
+                    result.FileReadTime = sw.Elapsed;
                 }
             }
         }
         private static void HashByteArrayThread()
         {
+            var sw = new System.Diagnostics.Stopwatch();
             byte[] hashBuffer = new byte[1048576];
             while (!AbortThreads)
             {
                 Thread.Sleep(sleepTime);
-                if (!HashQueue.TryDequeue(out var result) || result.HashFailed)
+                if (!HashQueue.TryDequeue(out var result) || result == null || result.HashFailed)
                     continue;
               
                 try
                 {
+                    sw.Restart();
                     if (result?.rawData == null)
                     {
                         result.HashFailed = true;
@@ -273,14 +298,20 @@ namespace Zettai
                 }
                 catch (Exception e)
                 {
+                    sw.Stop();
                     MelonLoader.MelonLogger.Error($"Hash calculation failed! '{e.Message}' ");
                     result.HashFailed = true;
+                }
+                finally
+                {
+                    sw.Stop();
+                    result.HashTime = sw.Elapsed;
                 }
             }
         }
         private static void VerifyBundle(DownloadData downloadData)
         {
-            using (BundleContext bundleContext = new BundleContext(downloadData.assetUrl, downloadData.decryptedData))
+            using (var bundleContext = new BundleContext(downloadData.assetUrl, downloadData.decryptedData))
             {
                 if (bundleContext.IsGoodUrl)
                 {
@@ -299,31 +330,20 @@ namespace Zettai
         }
         internal static bool ShouldVerify(DownloadData downloadData)
         {
-            if (downloadData.type == DownloadTask.ObjectType.World || downloadData.isLocal)
+            if (downloadData.type == AssetType.Scene|| downloadData.isLocal)
             {
                 downloadData.Verified = true;
                 downloadData.VerifyDone = true;
                 return false;
             }
-            if (!MetaPort.Instance.settings.GetSettingsBool("ExperimentalBundleVerifierEnabled", false))
+            if (!MemoryCache.verifierEnabled)
             {
                 downloadData.Verified = true;
                 downloadData.VerifyDone = true;
                 return false;
             }
-            // what is an enum even
-            bool? userBundleVerifierBypass = MetaPort.Instance.SelfModerationManager.GetUserBundleVerifierBypass(downloadData.target);
-            if (userBundleVerifierBypass != null)
-            {
-                return !userBundleVerifierBypass.Value;
-            }
 
-            bool friendsWith = MemoryCache.FriendsWith(downloadData.target);
-            bool publicOnly = MetaPort.Instance.settings.GetSettingsBool("ExperimentalBundleVerifierPublicsOnly", false);
-            bool filterFirends = MetaPort.Instance.settings.GetSettingsBool("ExperimentalBundleVerifierFilterFriends", false);
-            bool isPublic = string.Equals(MetaPort.Instance.CurrentInstancePrivacy, "public", StringComparison.OrdinalIgnoreCase);
-
-            var shouldVerify = (!publicOnly || isPublic) && (filterFirends || !friendsWith);
+            var shouldVerify = (!MemoryCache.publicOnly || MemoryCache.isPublic);
             if (!shouldVerify)
             {
                 downloadData.Verified = true;
@@ -333,23 +353,31 @@ namespace Zettai
         }
         private static void VerifyThread()
         {
+            var sw = new System.Diagnostics.Stopwatch();
             while (!AbortThreads)
             {
                 Thread.Sleep(sleepTime);
-                if (!VerifyQueue.TryDequeue(out var result) || result.FileReadFailed)
+                if (!VerifyQueue.TryDequeue(out var result) || result == null || result.FileReadFailed)
                     continue;
 
                 try
                 {
+                    sw.Restart();
                     result.status = DownloadData.Status.BundleVerifier;
                     VerifyBundle(result);
                     result.VerifyDone = true;
                 }
                 catch (Exception e)
                 {
+                    sw.Stop();
                     result.Verified = false;
                     result.VerifyFailed = true;
                     MelonLoader.MelonLogger.Error($"Verify failed! '{e.Message}' ");
+                }
+                finally
+                {
+                    sw.Stop();
+                    result.VerifyTime = sw.Elapsed;
                 }
             }
         }
@@ -389,10 +417,10 @@ namespace Zettai
             StartNewThreads("Download", DownloadThread, downloadThreads);
             downloadCounter.Release(downloadThreads);
 
-            while (string.IsNullOrEmpty(MetaPort.Instance.APPLICATION_DATAPATH) || !Directory.Exists(MetaPort.Instance.APPLICATION_DATAPATH))
+            while (string.IsNullOrEmpty(ABI_RC.Core.Savior.MetaPort.Instance?.APPLICATION_DATAPATH) || !Directory.Exists(ABI_RC.Core.Savior.MetaPort.Instance?.APPLICATION_DATAPATH))
                 yield return null;
 
-            var dataPath = MetaPort.Instance.APPLICATION_DATAPATH;
+            var dataPath = ABI_RC.Core.Savior.MetaPort.Instance?.APPLICATION_DATAPATH;
             var AvatarsDir = dataPath + "/Avatars";
             var WorldsDir = dataPath + "/Worlds";
             var PropsDir = dataPath + "/Spawnables";
@@ -401,9 +429,9 @@ namespace Zettai
             var Worlds = Directory.CreateDirectory(WorldsDir);
             var Props = Directory.CreateDirectory(PropsDir);
 
-            names[DownloadTask.ObjectType.Avatar] = (AvatarsDir, "cvravatar", Avatars);
-            names[DownloadTask.ObjectType.World] = (WorldsDir, "cvrworld", Worlds);
-            names[DownloadTask.ObjectType.Prop] = (PropsDir, "cvrprop", Props);
+            names[AssetType.Avatar] = (AvatarsDir, "cvravatar", Avatars);
+            names[AssetType.Scene] = (WorldsDir, "cvrworld", Worlds);
+            names[AssetType.Prop] = (PropsDir, "cvrprop", Props);
 
             for (int i = 0; i < 100; i++)
             {

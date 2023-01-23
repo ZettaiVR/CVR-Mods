@@ -49,7 +49,9 @@ namespace Zettai
             if (!FileCache.PercentageText.TryGetValue(previousPercentageComplete, out var text))
                 text = $"{previousPercentageComplete} %";
             loadingAvatar.textMesh.text = text;
-            loadingAvatar.textMesh.ForceMeshUpdate(forceTextReparsing: true);
+            
+            loadingAvatar.textMesh.SetMaterialDirty();
+            //loadingAvatar.textMesh.ForceMeshUpdate(forceTextReparsing: true);
         }
     }
 }

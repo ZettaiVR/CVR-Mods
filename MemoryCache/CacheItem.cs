@@ -9,7 +9,7 @@ namespace Zettai
 {
     public class CacheItem
     {
-        public CacheItem(string id, string fileId, DownloadTask.ObjectType type, GameObject item, Tags tags, string name, string assetName, bool readOnly, AssetBundle bundle)
+        public CacheItem(string id, string fileId, AssetType type, GameObject item, Tags tags, string name, string assetName, bool readOnly, AssetBundle bundle)
         {
             AddTime = DateTime.UtcNow;
             AssetId = id;
@@ -30,14 +30,14 @@ namespace Zettai
                 if (!string.IsNullOrEmpty(assetName))
                     loadedAssetNames.Add(assetName);
             }
-            if (type == DownloadTask.ObjectType.Prop)
+            if (type == AssetType.Prop)
                 return;
             item.transform.localPosition = Vector3.zero;
             item.transform.localRotation = Quaternion.identity;
         }
-        internal CacheItem(string id, string FileId, DownloadTask.ObjectType type, GameObject item, Tags tags, string name) : this(id, FileId, type, item, tags, name, string.Empty, false, null) { }
-        internal CacheItem(string id, string FileId, DownloadTask.ObjectType type, GameObject item, Tags tags, string name, bool readOnly) : this(id, FileId, type, item, tags, string.Empty, name, readOnly, null) { }
-        internal CacheItem(string id, string FileId, DownloadTask.ObjectType type, GameObject item, Tags tags, string name, string assetName, AssetBundle assetBundle) : this(id, FileId, type, item, tags, assetName, name, false, assetBundle) { }
+        internal CacheItem(string id, string FileId, AssetType type, GameObject item, Tags tags, string name) : this(id, FileId, type, item, tags, name, string.Empty, false, null) { }
+        internal CacheItem(string id, string FileId, AssetType type, GameObject item, Tags tags, string name, bool readOnly) : this(id, FileId, type, item, tags, string.Empty, name, readOnly, null) { }
+        internal CacheItem(string id, string FileId, AssetType type, GameObject item, Tags tags, string name, string assetName, AssetBundle assetBundle) : this(id, FileId, type, item, tags, assetName, name, false, assetBundle) { }
         public override string ToString() => string.IsNullOrEmpty(Name) ? AssetId : Name;
         private readonly AssetBundle assetBundle = null;
         private readonly GameObject OriginalItem;
@@ -50,7 +50,7 @@ namespace Zettai
         public string FileId { get; }
         public string Name { get; }
         public string AssetName { get; }
-        public DownloadTask.ObjectType ObjectType { get; }
+        public AssetType ObjectType { get; }
         public Tags Tags { get; }
         public DateTime AddTime { get; }
         public int InstanceCount => instances.Count;
@@ -59,15 +59,15 @@ namespace Zettai
             age = now - lastRefRemoved;
             return !ReadOnly && InstanceCount == 0 && age > maxAge;
         }
-        public IEnumerator GetSanitizedAsset(GameObject parent, DownloadTask.ObjectType type, List<GameObject> instances, Tags tags, string assetId, 
+        public IEnumerator GetSanitizedAsset(GameObject parent, DownloadTask.ObjectType type, List<GameObject> instancesList, Tags tags, string assetId, 
             bool isLocal, bool friendsWith = false, bool isVisible = true,
             bool forceShow = false, bool forceBlock = false)
         {
-            if (instances == null)
+            if (instancesList == null || !OriginalItem)
                 yield break;
             yield return new WaitForEndOfFrame();
             GameObject instance = GameObject.Instantiate(OriginalItem, parent.transform);
-            instances.Add(instance);
+            instancesList.Add(instance);
             if (ReadOnly)
             {
                 yield return instance;
@@ -113,6 +113,8 @@ namespace Zettai
 
         public IEnumerator GetSanitizedProp(GameObject parent, List<GameObject> instanceList, Tags tags, string assetId, string target, string spawnedBy)
         {
+            if (instanceList == null || !OriginalItem)
+                yield break;
             var empty = string.Empty;
             bool isOwnOrFriend = spawnedBy == ABI_RC.Core.Savior.MetaPort.Instance.ownerId || MemoryCache.FriendsWith(spawnedBy);
             bool isVisible = ABI_RC.Core.Savior.MetaPort.Instance.SelfModerationManager.GetPropVisibility(spawnedBy, target, out bool wasForceHidden, out bool wasForceShown);
@@ -166,12 +168,12 @@ namespace Zettai
         {
             if (!string.IsNullOrEmpty(AssetName))
                 loadedAssetNames.Remove(AssetName);
-            if (!ReadOnly)
+            if (!ReadOnly && OriginalItem)
                 GameObject.DestroyImmediate(OriginalItem, true);
             if (HasBundle)
                 assetBundle.Unload(true);
         }
-        public bool IsMatch(DownloadTask.ObjectType type, string id, string fileID) => 
+        public bool IsMatch(AssetType type, string id, string fileID) => 
             type == ObjectType &&
             string.Equals(id, AssetId) &&
             (string.IsNullOrEmpty(fileID) || string.Equals(fileID, FileId));

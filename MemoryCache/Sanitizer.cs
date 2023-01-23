@@ -824,15 +824,6 @@ namespace Zettai
                     entry.fallbackGameObject.SetActive(value: true);
             }
         }
-        public enum AssetType
-        {
-            Avatar = 1,
-            Scene = 2,
-            Prop = 4,
-            HiddenAvatar = 8,
-            Other = 16,
-            Unknown = 128
-        }
         private class ComponentDependency
         {
             public bool hasDependency;

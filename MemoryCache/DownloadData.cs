@@ -1,5 +1,6 @@
 ﻿using ABI_RC.Core.IO;
 using ABI_RC.Core.Networking.API.Responses;
+using System;
 using System.Threading;
 
 namespace Zettai
@@ -26,7 +27,8 @@ namespace Zettai
         public readonly string fileHash;
         public readonly string target;
         public readonly Tags tags;
-        public readonly DownloadTask.ObjectType type;
+        public readonly AssetType type;
+        public readonly DownloadTask.ObjectType objectType;
 
         public volatile bool FileWriteDone = false;
         public volatile bool FileReadDone = false;
@@ -40,6 +42,13 @@ namespace Zettai
         public volatile bool DecryptFailed = false;
         public volatile bool VerifyFailed = false;
         public volatile bool Verified = false;
+
+        public TimeSpan FileWriteTime;
+        public TimeSpan FileReadTime;
+        public TimeSpan HashTime;
+        public TimeSpan DecryptTime;
+        public TimeSpan VerifyTime;
+        public TimeSpan DownloadTime;
 
         public volatile Status status = Status.None;
 
@@ -67,7 +76,8 @@ namespace Zettai
             fileKey = FileKey;
             fileHash = FileHash;
             target = Target;
-            type = Type;
+            objectType = Type;
+            type = Type.ToAssetType();
             tags = new Tags(TagsData);
             isLocal = MemoryCache.IsLocal(target);
             IsDone = false;
