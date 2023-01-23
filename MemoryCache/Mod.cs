@@ -44,6 +44,7 @@ namespace Zettai
         private static readonly SemaphoreSlim bundleLoadSemaphore = new SemaphoreSlim(1, 1);
         private static readonly SemaphoreSlim instantiateSemaphore = new SemaphoreSlim(1, 1);
         private static readonly SemaphoreSlim downloadSemaphore = new SemaphoreSlim(0, 32);
+        private static readonly Dictionary<string, CacheKey> playerIdToAsset = new Dictionary<string, CacheKey>();
         private static readonly Dictionary<CacheKey, CacheItem> cachedAssets = new Dictionary<CacheKey, CacheItem>();
         private static readonly Dictionary<CacheKey, DownloadData> downloadTasks = new Dictionary<CacheKey, DownloadData>();
         private static readonly Dictionary<CacheKey, TimeSpan> idsToRemove = new Dictionary<CacheKey, TimeSpan>(10);
@@ -112,7 +113,7 @@ namespace Zettai
             {
                 if (!enableMod.Value || (type != DownloadTask.ObjectType.Avatar && type != DownloadTask.ObjectType.Prop))
                     return true;
-                var thisDl = DLCounter;
+                var thisDl = DLCounter.ToString("D4");
                 DLCounter++;
                 if (enableLog.Value)
                     MelonLogger.Msg($"[DL-{thisDl}] Downloading asset '{type}': assetId: '{assetId}', fileId: '{fileId}', fileHash: '{fileHash}', fileSize: {fileSize}, toAttach: '{toAttach}' assetUrl empty? {string.IsNullOrEmpty(assetUrl)}, tags: { new Tags(tagsData) }.");
@@ -120,7 +121,7 @@ namespace Zettai
                 if (string.IsNullOrEmpty(fileId) && fileIds.TryGetValue(StringToLongHash(fileKey), out string FileId))
                     fileId = FileId;
                 var cacheKey = new CacheKey(assetId, fileId, StringToLongHash(fileKey));
-
+                playerIdToAsset[toAttach] = cacheKey;
                 if (!string.IsNullOrEmpty(fileId) && !string.IsNullOrEmpty(assetId) && cachedAssets.TryGetValue(cacheKey, out var item))
                 {
                     if (!item.IsMatch(type.ToAssetType(), assetId, fileId))
@@ -135,7 +136,7 @@ namespace Zettai
                     }
                     if (enableLog.Value)
                         MelonLogger.Msg($"[DL-{thisDl}] Loading asset '{type}' from cache");
-                    MelonCoroutines.Start(InstantiateItem(item, type, assetId, fileId, toAttach, thisDl));
+                    MelonCoroutines.Start(InstantiateItem(item, type, assetId, fileId, toAttach, thisDl, cacheKey));
                     return false;
                 }
                 if (enableLog.Value)
@@ -239,8 +240,12 @@ namespace Zettai
                     MelonLogger.Msg($"Instantiating asset '{t}': '{objectId}', '{task.FileId}', '{instTarget}', tags: {tags}.");
                 if (task != null)
                     task.Status = DownloadTask.ExecutionStatus.Complete;
-                fileIds[StringToLongHash(task.FileKey)] = task.FileId;
-                MelonCoroutines.Start(LoadPatch(b, objectId, t, tags, instTarget, task.FileId, StringToLongHash(task.FileKey), task));
+                var key = StringToLongHash(task.FileKey);
+                fileIds[key] = task.FileId;
+                var cacheKey = new CacheKey(objectId, task.FileId, key);
+                if (t == DownloadTask.ObjectType.Avatar)
+                    playerIdToAsset[instTarget] = cacheKey;
+                MelonCoroutines.Start(LoadPatch(b, objectId, t, tags, instTarget, task.FileId, job: task, cacheKey: cacheKey));
             }
         }
 
@@ -257,8 +262,9 @@ namespace Zettai
                 item.Value.UpdateLoadingAvatar();
             }
         }
-        private static void UpdateBlockedAvatar() 
+        private static void UpdateBlockedAvatar()
         {
+            playerIdToAsset.Clear();
             try
             {
                 cachedAssets.Remove(BlockedKey);
@@ -328,7 +334,7 @@ namespace Zettai
 
       
         private static bool StartDownloadAsset(CacheKey cacheKey, string assetId, DownloadTask.ObjectType type, string assetUrl, string fileId, long fileSize, string fileKey, string target, string fileHash,
-                UgcTagsData tagsData, bool joinOnComplete, int thisDl)
+                UgcTagsData tagsData, bool joinOnComplete, string thisDl)
         {
             if (!FileCache.InitDone)
                 return true;
@@ -337,7 +343,7 @@ namespace Zettai
             return false;
         }
 
-        private static IEnumerator LoadExistingAsset(string target, CacheKey cacheKey, DownloadData downloadData, int thisDl) 
+        private static IEnumerator LoadExistingAsset(string target, CacheKey cacheKey, DownloadData downloadData, string thisDl) 
         {
             try
             {
@@ -356,7 +362,7 @@ namespace Zettai
                 {
                     if (enableLog.Value)
                         MelonLogger.Msg($"[DL-{thisDl}] Loading asset '{downloadData.type}', '{downloadData.assetId}' from cache");
-                    MelonCoroutines.Start(InstantiateItem(item, downloadData.objectType, downloadData.assetId, downloadData.fileId, target, thisDl));
+                    MelonCoroutines.Start(InstantiateItem(item, downloadData.objectType, downloadData.assetId, downloadData.fileId, target, thisDl, cacheKey));
                 }
                 else
                 {
@@ -371,8 +377,7 @@ namespace Zettai
 
         }
 
-
-        private static void LogDownloadStats(DownloadData data, int thisDl)
+        private static void LogDownloadStats(DownloadData data, string thisDl)
         {
             if (!enableLog.Value)
                 return;
@@ -381,7 +386,7 @@ namespace Zettai
         }
 
         private static IEnumerator DownloadAsset(CacheKey cacheKey, string assetId, DownloadTask.ObjectType type, string assetUrl, string fileId, long fileSize, string fileKey, string target, string fileHash,
-                UgcTagsData tagsData, bool joinOnComplete, int thisDl)
+                UgcTagsData tagsData, bool joinOnComplete, string thisDl)
         {
             if (downloadTasks.TryGetValue(cacheKey, out var downloadData))
             {
@@ -510,7 +515,7 @@ namespace Zettai
                     dlData.rawData = null;
                 if (enableLog.Value)
                     MelonLogger.Msg($"[DL-{thisDl}] Loading finished for asset '{type}' with ID '{assetId}'. ");
-                yield return LoadPatch(dlData.decryptedData, assetId, type, new Tags(tagsData), target, fileId, longHash, null, dlData, thisDl);
+                yield return LoadPatch(dlData.decryptedData, assetId, type, new Tags(tagsData), target, fileId, downloadData: dlData, thisDl: thisDl, cacheKey: cacheKey);
             }
             finally 
             {
@@ -537,7 +542,7 @@ namespace Zettai
             }
         }
 
-        private static IEnumerator VerifyWait(DownloadData dlData, int thisDl)
+        private static IEnumerator VerifyWait(DownloadData dlData, string thisDl)
         {
             if (!FileCache.ShouldVerify(dlData))
                 yield break;
@@ -567,7 +572,7 @@ namespace Zettai
         }
 
 
-        private static IEnumerator DecryptRawBytesWait(DownloadData dlData, int thisDl)
+        private static IEnumerator DecryptRawBytesWait(DownloadData dlData, string thisDl)
         {
             var sw = new System.Diagnostics.Stopwatch();
             dlData.status = DownloadData.Status.DecryptingQueued;
@@ -592,7 +597,7 @@ namespace Zettai
             }
         }
 
-        private static IEnumerator ReadRawBytesWait(DownloadData dlData, int thisDl)
+        private static IEnumerator ReadRawBytesWait(DownloadData dlData, string thisDl)
         {
             var sw = new System.Diagnostics.Stopwatch();
             sw.Start();
@@ -617,7 +622,7 @@ namespace Zettai
             sw.Stop();
         }
 
-        private static IEnumerator HashRawBytesWait(DownloadData dlData, int thisDl) 
+        private static IEnumerator HashRawBytesWait(DownloadData dlData, string thisDl) 
         {
             var sw = new System.Diagnostics.Stopwatch();
             sw.Start();
@@ -643,7 +648,7 @@ namespace Zettai
         }
 
         private static readonly WaitForEndOfFrame endOfFrame = new WaitForEndOfFrame();
-        private static IEnumerator StartDownloadWait(DownloadData dlData, int thisDl)
+        private static IEnumerator StartDownloadWait(DownloadData dlData, string thisDl)
         {
             int timeout = loadTimeoutSecondsEntry.Value;
             bool noTimeout = timeout == 0;
@@ -674,7 +679,8 @@ namespace Zettai
             }
             return value;
         }
-        private static IEnumerator InstantiateItem(CacheItem item, DownloadTask.ObjectType type, string id, string fileId, string owner, int thisDl, bool wait = true)
+        private static readonly System.Diagnostics.Stopwatch AnimatorStopwatch = new System.Diagnostics.Stopwatch();
+        private static IEnumerator InstantiateItem(CacheItem item, DownloadTask.ObjectType type, string assetId, string fileId, string owner, string thisDl, CacheKey cacheKey, bool wait = true)
         {
             if (wait)
             {
@@ -690,7 +696,7 @@ namespace Zettai
                         yield return null;
                     else
                     {
-                        MelonLogger.Error($"[DL-{thisDl}] Timeout loading asset {type}: ID: '{id}', fileId: '{fileId}', owner: '{owner}'.");
+                        MelonLogger.Error($"[DL-{thisDl}] Timeout loading asset {type}: ID: '{assetId}', fileId: '{fileId}', owner: '{owner}'.");
                         yield break;
                     }
                 } 
@@ -700,7 +706,7 @@ namespace Zettai
             try
             {
                 if (enableLog.Value)
-                    MelonLogger.Msg($"[DL-{thisDl}] Instantiating item {type}: ID: '{id}', fileId: '{fileId}', owner: '{owner}'.");
+                    MelonLogger.Msg($"[DL-{thisDl}] Instantiating item {type}: ID: '{assetId}', fileId: '{fileId}', owner: '{owner}'.");
                 GameObject parent;
                 GameObject instance;
                 var instanceList = new List<GameObject>(1);
@@ -708,15 +714,18 @@ namespace Zettai
                 {
                     bool local = IsLocal(owner);
                     CVRPlayerEntity player = FindPlayerParent(owner, out parent, local);
-                    yield return InstantiateAvatar(item, instanceList, id, owner, parent, player, local, thisDl);
+                    yield return InstantiateAvatar(item, instanceList, assetId, owner, parent, player, local, thisDl, cacheKey);
                     instance = instanceList.Count == 0 ? null : instanceList[0];
                     if (!instance)
                     {
-                        MelonLogger.Error($"[DL-{thisDl}] Instantiating item {type} failed: ID: '{id}', owner: '{owner}'.");
+                        if (playerIdToAsset.TryGetValue(owner, out var key) && key != cacheKey)
+                            yield break;
+                        MelonLogger.Error($"[DL-{thisDl}] Instantiating item {type} failed: ID: '{assetId}', owner: '{owner}'.");
                         yield break;
                     }
                     if (player != null && player.LoadingAvatar != null)
-                        GameObject.Destroy(player.LoadingAvatar);
+                        GameObject.DestroyImmediate(player.LoadingAvatar);
+                    //    player.LoadingAvatar.gameObject.SetActive(false);
                     ActivateInstance(item, parent, instance);
                     SetupInstantiatedAvatar(instance, player, thisDl);
                     if (local)
@@ -725,13 +734,24 @@ namespace Zettai
                         ViewManager.Instance.UpdateMenuPosition(true);
                     }
                     yield return null;
+                    if (enableLog.Value)
+                    {
+                        var animator = instance.GetComponent<Animator>();
+                        if (animator)
+                        {
+                            AnimatorStopwatch.Restart();
+                            animator.Update(0f);
+                            AnimatorStopwatch.Stop();
+                            MelonLogger.Msg($"[DL-{thisDl}] Animator exectuion time for ID '{assetId}': {AnimatorStopwatch.Elapsed.TotalMilliseconds} ms. ");
+                        }
+                    }
                 }
                 else if (type == DownloadTask.ObjectType.Prop)
                 {
                     var propData = FindProp(owner);
                     if (propData == null)
                     {
-                        MelonLogger.Warning($"[DL-{thisDl}] Instantiating item {type} failed: ID: '{id}', owner: '{owner}'. Prop data not found. Deleted before loading completed? Prop Count: { (CVRSyncHelper.Props?.Count.ToString() ?? "-null-")}'.");
+                        MelonLogger.Warning($"[DL-{thisDl}] Instantiating item {type} failed: ID: '{assetId}', owner: '{owner}'. Prop data not found. Deleted before loading completed? Prop Count: { (CVRSyncHelper.Props?.Count.ToString() ?? "-null-")}'.");
                         yield break;
                     }
                     parent = new GameObject(owner);
@@ -739,7 +759,7 @@ namespace Zettai
                     instance = instanceList.Count == 0 ? null : instanceList[0];
                     if (!instance)
                     {
-                        MelonLogger.Error($"[DL-{thisDl}] Instantiating item {type} failed: ID: '{id}', owner: '{owner}', instances.Count: '{instanceList.Count}'.");
+                        MelonLogger.Error($"[DL-{thisDl}] Instantiating item {type} failed: ID: '{assetId}', owner: '{owner}', instances.Count: '{instanceList.Count}'.");
                         yield break;
                     }
                     yield return null;
@@ -796,14 +816,12 @@ namespace Zettai
                 MelonLogger.Error(e);
             }
         }
-        private static IEnumerator InstantiateAvatar(CacheItem item, List<GameObject> instances, string assetId, string owner, GameObject parent, CVRPlayerEntity player, bool isLocal, int thisDl)
+        private static IEnumerator InstantiateAvatar(CacheItem item, List<GameObject> instances, string assetId, string owner, GameObject parent, CVRPlayerEntity player, bool isLocal, string thisDl, CacheKey cacheKey)
         {
             var oldGameObjectCount = parent.transform.childCount;
             var oldGameObjects = new GameObject[oldGameObjectCount];
             for (int i = 0; i < oldGameObjectCount; i++)
-            {
                 oldGameObjects[i] = parent.transform.GetChild(i).gameObject;
-            }
 
             GameObject tempParent = new GameObject();
             tempParent.SetActive(false);
@@ -821,9 +839,15 @@ namespace Zettai
                 }
                 yield return null;
                 yield return new WaitForEndOfFrame();
+                instance = instances[0];
+                if (playerIdToAsset.TryGetValue(owner, out var _key) && _key != cacheKey)
+                {
+                    GameObject.DestroyImmediate(instance);
+                    MelonLogger.Warning($"[DL-{thisDl}] (InstantiateAvatar) Instantiating avatar cancelled: ID: '{assetId}', owner: '{owner}'.");
+                    yield break;
+                }
                 MetaPort.Instance.currentAvatarGuid = assetId;
                 PlayerSetup.Instance.ClearAvatar();
-                instance = instances[0];
                 ActivateNewGameObject(instance, parent, oldGameObjects, tempParent);
                 yield break;
             }
@@ -862,6 +886,13 @@ namespace Zettai
                 yield break;
             }
             instance = instances[0];
+
+            if (playerIdToAsset.TryGetValue(owner, out var key) && key != cacheKey)
+            {
+                GameObject.DestroyImmediate(instance);
+                MelonLogger.Warning($"[DL-{thisDl}] (InstantiateAvatar) Instantiating avatar cancelled: ID: '{assetId}', owner: '{owner}'.");
+                yield break;
+            }
             if (!parent)
             {
                 FindPlayerParent(owner, out parent, isLocal);
@@ -873,6 +904,8 @@ namespace Zettai
                     yield break;
                 }
             }
+            if (enableLog.Value)
+                MelonLogger.Msg($"[DL-{thisDl}] Activating avatar.");
             ActivateNewGameObject(instance, parent, oldGameObjects, tempParent);
             SetPlayerCapsuleSize(player, instance);
         }
@@ -887,7 +920,7 @@ namespace Zettai
             GameObject.DestroyImmediate(tempParent);
         }
 
-        private static IEnumerator InstantiateProp(CacheItem item, List<GameObject> instanceList, string target, GameObject parent, CVRSyncHelper.PropData propData, int thisDl)
+        private static IEnumerator InstantiateProp(CacheItem item, List<GameObject> instanceList, string target, GameObject parent, CVRSyncHelper.PropData propData, string thisDl)
         {
             if (propData == null || item == null)
             {
@@ -899,7 +932,7 @@ namespace Zettai
                 Quaternion.Euler(propData.RotationX, propData.RotationY, propData.RotationZ));
             yield return item.GetSanitizedProp(parent, instanceList, item.Tags, item.AssetId, target, propData.SpawnedBy);
         }
-        private static void SetPropData(CVRSyncHelper.PropData propData, GameObject container, GameObject propInstance, int thisDl)
+        private static void SetPropData(CVRSyncHelper.PropData propData, GameObject container, GameObject propInstance, string thisDl)
         {
             if (!propInstance)
                 return;
@@ -958,7 +991,7 @@ namespace Zettai
         }
 
        
-        private static void SetupInstantiatedAvatar(GameObject instance, CVRPlayerEntity player, int thisDl)
+        private static void SetupInstantiatedAvatar(GameObject instance, CVRPlayerEntity player, string thisDl)
         {
             if (player != null)
             {
@@ -974,7 +1007,7 @@ namespace Zettai
             else
                 PlayerSetup.Instance.SetupAvatar(instance);
         }
-        private static IEnumerator LoadPatch(byte[] bytes, string assetId, DownloadTask.ObjectType type, Tags tags, string owner, string FileId, ulong keyHash, DownloadTask job = null, DownloadData downloadData = null, int thisDl = 0)
+        private static IEnumerator LoadPatch(byte[] bytes, string assetId, DownloadTask.ObjectType type, Tags tags, string owner, string FileId, CacheKey cacheKey, DownloadTask job = null, DownloadData downloadData = null, string thisDl = "0")
         {
             var assetPath = type == DownloadTask.ObjectType.Avatar ? _AVATAR_PATH : _PROP_PATH;
             if (bytes == null && type == DownloadTask.ObjectType.Avatar)
@@ -982,7 +1015,7 @@ namespace Zettai
                 if (downloadData != null)
                     downloadData.status = DownloadData.Status.LoadingBundle;
                 var item = cachedAssets[BlockedKey];
-                yield return InstantiateItem(item, type, item.AssetId, item.FileId, owner, -1);
+                yield return InstantiateItem(item, type, item.AssetId, item.FileId, owner, "----", cacheKey);
                 if (job != null)
                     job.Status = DownloadTask.ExecutionStatus.Complete;
                 if (downloadData != null)
@@ -1032,11 +1065,10 @@ namespace Zettai
                     shouldRelease = false;
                 }
                 var name = GetName(gameObject, FileId);
-                var cacheKey = new CacheKey(assetId, FileId, keyHash);
                 var item = cachedAssets[cacheKey] = new CacheItem(assetId, FileId, type.ToAssetType(), gameObject, tags, name, assetName, shouldUnload ? null: bundle.assetBundle);
                 if (enableLog.Value)
                     MelonLogger.Msg($"[DL-{thisDl}] Added asset '{type}' with ID '{assetId}', file ID '{FileId}', game object name '{(gameObject != null ? gameObject.name : "-null-")}', tags: {tags}.");
-                yield return InstantiateItem(item, type, assetId, FileId, owner, thisDl, wait: false);
+                yield return InstantiateItem(item, type, assetId, FileId, owner, thisDl, cacheKey, wait: false);
             }
             finally
             {
@@ -1055,7 +1087,7 @@ namespace Zettai
             yield break;
         }
 
-        private static bool GetAssetName(string expectedName, string[] allAssetNames, out string assetName, ref bool shouldUnload, int thisDl)
+        private static bool GetAssetName(string expectedName, string[] allAssetNames, out string assetName, ref bool shouldUnload, string thisDl)
         {
             if (allAssetNames == null || allAssetNames.Length == 0)
             {

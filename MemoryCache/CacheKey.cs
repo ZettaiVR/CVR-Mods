@@ -30,6 +30,8 @@ namespace Zettai
             Version = fileId;
             Id = id;
             Valid = true;
+            IdString = string.Empty;
+            VersionString = string.Empty;
             KeyHash = keyHash;
         }
         public override bool Equals(object obj)
