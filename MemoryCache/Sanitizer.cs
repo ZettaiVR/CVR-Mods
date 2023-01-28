@@ -1066,8 +1066,25 @@ namespace Zettai
                 {
                     if (!typeAssemblyCache.TryGetValue(allAssemblies[i], out var types))
                     {
-                        types = allAssemblies[i].GetTypes();
-                        typeAssemblyCache[allAssemblies[i]] = types;
+                        try
+                        {
+                            types = allAssemblies[i].GetTypes();
+                            typeAssemblyCache[allAssemblies[i]] = types;
+                        }
+                        catch (System.Reflection.ReflectionTypeLoadException te)
+                        {
+                            MelonLoader.MelonLogger.Error($"Error loading types from assembly {allAssemblies[i].FullName}. Loaded:");
+
+                            foreach (var item in te.Types)
+                            {
+                                MelonLoader.MelonLogger.Error(item.FullName);
+                            }
+                            MelonLoader.MelonLogger.Error($"LoaderExceptions:");
+                            foreach (var item in te.LoaderExceptions)
+                            {
+                                MelonLoader.MelonLogger.Error(item.Message);
+                            }
+                        }
                     }
                     foreach (Type v in types)
                         if (v != type && type.IsAssignableFrom(v))
