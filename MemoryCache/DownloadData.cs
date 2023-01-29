@@ -45,14 +45,14 @@ namespace Zettai
 
         public TimeSpan FileWriteTime;
         public TimeSpan FileReadTime;
-        public TimeSpan HashTime;
+        public TimeSpan MD5HashTime;
         public TimeSpan DecryptTime;
         public TimeSpan VerifyTime;
         public TimeSpan DownloadTime;
 
         public volatile Status status = Status.None;
 
-        public CancellationToken cancellationToken = new CancellationToken();
+        public CancellationTokenSource cancellationToken = new CancellationTokenSource();
         internal long prevDownloaded = 0;
         internal int rateLimit = 0;
 

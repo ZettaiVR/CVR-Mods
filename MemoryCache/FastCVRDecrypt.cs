@@ -91,10 +91,10 @@ namespace Zettai
 
             for (int i = 1; i < stepCount; i++)
             {
-                int num4 = (int)(Rand() % (stepCount - 1) + 1);
-                int num5 = ints[num4];
-                ints[num4] = ints[i];
-                ints[i] = num5;
+                int index = (int)(Rand() % (stepCount - 1) + 1);
+                int temp = ints[index];
+                ints[index] = ints[i];
+                ints[i] = temp;
             }
             var copyArray = stackalloc Copies[stepCount];
             uint offset = 0u;

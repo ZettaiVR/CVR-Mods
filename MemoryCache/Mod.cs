@@ -248,7 +248,44 @@ namespace Zettai
                 MelonCoroutines.Start(LoadPatch(b, objectId, t, tags, instTarget, task.FileId, job: task, cacheKey: cacheKey));
             }
         }
-
+        [HarmonyPatch(typeof(CVRPlayerManager))]
+        class PlayerManagerPatch
+        {
+            [HarmonyPrefix]
+            [HarmonyPatch(nameof(CVRPlayerManager.ClearPlayerAvatars))]
+            static bool ClearPlayerAvatarsPrefix(CVRPlayerManager __instance)
+            {
+                if (!enableMod.Value)
+                    return true; 
+                foreach (var download in downloadTasks)
+                {
+                    download.Value.cancellationToken.Cancel();
+                }
+                foreach (var asset in cachedAssets)
+                {
+                    foreach (var instance in asset.Value.Instances)
+                    {
+                        asset.Value.RemoveInstanceInternal(instance);
+                    }
+                }
+                foreach (var player in __instance.NetworkPlayers)
+                {
+                    if (string.IsNullOrEmpty(player.Uuid))
+                        continue;
+                    CVRDownloadManager.Instance.RemoveQueuedUser(player.Uuid);
+                    var puppetMaster = player.PuppetMaster;
+                    if (!puppetMaster)
+                        puppetMaster = player.PlayerObject.GetComponent<PuppetMaster>();
+                    if (!puppetMaster || puppetMaster._isBlocked) 
+                        continue;
+                    puppetMaster._isBlocked = true;
+                    puppetMaster.AvatarDestroyed();
+                    CacheItem.ClearTransformChildren(player.AvatarHolder);
+                    MelonCoroutines.Start(LoadPatch(null, null, DownloadTask.ObjectType.Avatar, null, player.Uuid, null, null));
+                }
+                return false;
+            }
+        }
 
 
         public static void UpdateLoadingAvatars()
@@ -382,7 +419,7 @@ namespace Zettai
             if (!enableLog.Value)
                 return;
             MelonLogger.Msg($"[DL-{thisDl}] Asset loading ended for '{data.type}' with ID '{data.assetId}', success {!data.Failed}. {data.fileSize / 1024f / 1024f} MB \r\n" +
-                $"DownloadTime: {data.DownloadTime.TotalMilliseconds} ms, FileReadTime: {data.FileReadTime.TotalMilliseconds} ms, HashTime: {data.HashTime.TotalMilliseconds} ms, VerifyTime: {data.VerifyTime.TotalMilliseconds} ms, DecryptTime: {data.DecryptTime.TotalMilliseconds} ms.");
+                $"DownloadTime: {data.DownloadTime.TotalMilliseconds} ms, FileReadTime: {data.FileReadTime.TotalMilliseconds} ms, MD5HashTime: {data.MD5HashTime.TotalMilliseconds} ms, VerifyTime: {data.VerifyTime.TotalMilliseconds} ms, DecryptTime: {data.DecryptTime.TotalMilliseconds} ms.");
         }
 
         private static IEnumerator DownloadAsset(CacheKey cacheKey, string assetId, DownloadTask.ObjectType type, string assetUrl, string fileId, long fileSize, string fileKey, string target, string fileHash,
@@ -515,6 +552,11 @@ namespace Zettai
                     dlData.rawData = null;
                 if (enableLog.Value)
                     MelonLogger.Msg($"[DL-{thisDl}] Loading finished for asset '{type}' with ID '{assetId}'. ");
+                if (dlData.cancellationToken.IsCancellationRequested)
+                {
+                    MelonLogger.Msg($"[DL-{thisDl}] Loading cancelled for asset '{type}' with ID '{assetId}'. ");
+                    yield break;
+                }
                 yield return LoadPatch(dlData.decryptedData, assetId, type, new Tags(tagsData), target, fileId, downloadData: dlData, thisDl: thisDl, cacheKey: cacheKey);
             }
             finally 
@@ -736,8 +778,7 @@ namespace Zettai
                     yield return null;
                     if (enableLog.Value)
                     {
-                        var animator = instance.GetComponent<Animator>();
-                        if (animator)
+                        if (instance.TryGetComponent<Animator>(out var animator))
                         {
                             AnimatorStopwatch.Restart();
                             animator.Update(0f);
@@ -936,8 +977,7 @@ namespace Zettai
         {
             if (!propInstance)
                 return;
-            var component = propInstance.GetComponent<CVRSpawnable>();
-            if (component == null || component.transform == null)
+            if (!propInstance.TryGetComponent<CVRSpawnable>(out var component) || component.transform == null)
             {
                 MelonLogger.Error($"[DL-{thisDl}] SetPropData failed, component found? '{component == null}'.");
                 return;
@@ -968,8 +1008,9 @@ namespace Zettai
         }
         private static void SetPlayerCapsuleSize(CVRPlayerEntity cvrplayerEntity, GameObject instance)
         {
-            var playerCapsule = cvrplayerEntity.PlayerObject.GetComponent<CapsuleCollider>();
-            var cvrAvatar = instance.GetComponent<CVRAvatar>();
+            if (!cvrplayerEntity.PlayerObject.TryGetComponent<CapsuleCollider>(out var playerCapsule) || 
+                !instance.TryGetComponent<CVRAvatar>(out var cvrAvatar))
+                return;
             playerCapsule.height = cvrAvatar.viewPosition.y * 1.084f;
             playerCapsule.radius = playerCapsule.height / 6f;
             playerCapsule.center = new Vector3(0f, playerCapsule.height / 2f, 0f);
@@ -1107,7 +1148,21 @@ namespace Zettai
             }
             return true;
         }
-
+        internal static int GetAllLoadedAssetBundlesCount() 
+        {
+            var bundles = AssetBundle.GetAllLoadedAssetBundles();
+            return bundles.Count();
+        }
+        internal static string GetAllLoadedAssetBundlesNames()
+        {
+            var bundles = AssetBundle.GetAllLoadedAssetBundles();
+            List<string> names = new List<string>(bundles.Count());
+            foreach (var bundle in bundles)
+            {
+                names.Add(bundle.name);
+            }
+            return string.Join(", ", names);
+        }
         private static string GetName(GameObject gameObject, string defaultName)
         {
             var animator = gameObject.GetComponent<Animator>();

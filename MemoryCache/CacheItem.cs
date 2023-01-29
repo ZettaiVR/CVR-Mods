@@ -54,6 +54,7 @@ namespace Zettai
         public Tags Tags { get; }
         public DateTime AddTime { get; }
         public int InstanceCount => instances.Count;
+        public List<GameObject> Instances => new List<GameObject>(instances);
         public bool CanRemove(TimeSpan maxAge, DateTime now, out TimeSpan age)
         {
             age = now - lastRefRemoved;
@@ -158,7 +159,7 @@ namespace Zettai
             }
             return false;
         }
-        private void RemoveInstanceInternal(GameObject item)
+        internal void RemoveInstanceInternal(GameObject item)
         {
             if (instances.Remove(item))
                 lastRefRemoved = DateTime.UtcNow;

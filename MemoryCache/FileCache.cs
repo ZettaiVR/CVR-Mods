@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
 using System.Threading;
+using UnityEngine.Profiling;
 
 namespace Zettai
 {
@@ -78,10 +79,9 @@ namespace Zettai
 
                     var key = result.rawKey ?? ABI_RC.Core.IO.DownloadManagerHelperFunctions.ConvertToFileKey(result.fileKey);
                     result.decryptedData = decrypt.Decrypt(result.assetId, result.rawData, key);
+                    sw.Stop();
                     result.DecryptDone = true;
 
-
-                    var last = sw.Elapsed;
                     /*
                     // test against the original
 
@@ -159,13 +159,13 @@ namespace Zettai
                     var rateLimit = data.rateLimit; //bytes per sec
                     var timeLimit = rateLimit > 0 ? bufferSize1000Double / rateLimit : 1d; // millisec per read event
                     var stopWatch = new System.Diagnostics.Stopwatch();
-                    await downloadCounter.WaitAsync(data.cancellationToken);
+                    await downloadCounter.WaitAsync(data.cancellationToken.Token);
                     do
                     {
                         stopWatch.Start();
                         var freeSlots = (downloadCounter.CurrentCount + 1f) / downloadCountMax;
                         var actualTimeLimit = timeLimit * freeSlots;
-                        var bytesRead = await webStream.ReadAsync(buffer, 0, buffer.Length, data.cancellationToken);
+                        var bytesRead = await webStream.ReadAsync(buffer, 0, buffer.Length, data.cancellationToken.Token);
                         if (bytesRead == 0)
                         {
                             isMoreToRead = false;
@@ -174,7 +174,7 @@ namespace Zettai
                             data.DownloadDone = true;
                             break;
                         }
-                        await memoryStream.WriteAsync(buffer, 0, bytesRead, data.cancellationToken);
+                        await memoryStream.WriteAsync(buffer, 0, bytesRead, data.cancellationToken.Token);
                         totalRead += bytesRead;
                         data.PercentageComplete = (int)(totalRead * 100L / length);
 
@@ -276,7 +276,6 @@ namespace Zettai
                         result.FileReadFailed = true;
                         continue;
                     }
-                    result.status = DownloadData.Status.Hashing;
                     using (var stream = new MemoryStream(result.rawData))
                     using (var md5Instance = System.Security.Cryptography.MD5.Create())
                     {
@@ -305,7 +304,7 @@ namespace Zettai
                 finally
                 {
                     sw.Stop();
-                    result.HashTime = sw.Elapsed;
+                    result.MD5HashTime = sw.Elapsed;
                 }
             }
         }
