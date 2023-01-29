@@ -1064,32 +1064,43 @@ namespace Zettai
                 matchingTypes.Add(type);
                 for (int i = 0; i < allAssemblies.Length; i++)
                 {
-                    if (!typeAssemblyCache.TryGetValue(allAssemblies[i], out var types))
+                    var assembly = allAssemblies[i];
+                    if (!typeAssemblyCache.TryGetValue(assembly, out var types))
                     {
                         try
                         {
-                            types = allAssemblies[i].GetTypes();
-                            typeAssemblyCache[allAssemblies[i]] = types;
+                            types = assembly.GetTypes();
+                            typeAssemblyCache[assembly] = types;
                         }
                         catch (System.Reflection.ReflectionTypeLoadException te)
                         {
-                            MelonLoader.MelonLogger.Error($"Error loading types from assembly {allAssemblies[i].FullName}. Loaded:");
+                            MelonLoader.MelonLogger.Error($"Error loading types from assembly {assembly?.FullName ?? "unknown"}. Are you missing a dependecy library? Loaded:");
 
                             foreach (var item in te.Types)
                             {
-                                MelonLoader.MelonLogger.Error(item.FullName);
+                                MelonLoader.MelonLogger.Warning(item?.FullName ?? "null item");
                             }
                             MelonLoader.MelonLogger.Error($"LoaderExceptions:");
                             foreach (var item in te.LoaderExceptions)
                             {
                                 MelonLoader.MelonLogger.Error(item.Message);
                             }
+                            continue;
+                        }
+                        catch (Exception e)
+                        {
+                            MelonLoader.MelonLogger.Error($"Exception in getting types for assembly {assembly?.FullName ?? "unknown"} : {e.Message}");
                         }
                     }
                     foreach (Type v in types)
                         if (v != type && type.IsAssignableFrom(v))
                             matchingTypes.Add(v);
                 }
+                return matchingTypes.ToList();
+            }
+            catch (Exception e)
+            {
+                MelonLoader.MelonLogger.Error($"Exception in TypeArrayForType: {e.Message}");
                 return matchingTypes.ToList();
             }
             finally
