@@ -716,8 +716,12 @@ namespace Zettai
             ulong value = 0;
             unchecked
             {
+                ulong prime = 1;
                 for (int i = 0; i < text.Length; i++)
-                    value += text[i] * (ulong)(i + 1);
+                {
+                    value += text[i] * prime;
+                    prime *= 97;
+                }
             }
             return value;
         }
