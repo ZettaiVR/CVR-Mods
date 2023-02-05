@@ -156,7 +156,7 @@ namespace Zettai
                     var totalRead = 0;
                     var buffer = new byte[bufferSize];
                     var isMoreToRead = true;
-                    var rateLimit = data.rateLimit; //bytes per sec
+                    var rateLimit = data.rateLimit; // bytes per sec
                     var timeLimit = rateLimit > 0 ? bufferSize1000Double / rateLimit : 1d; // millisec per read event
                     var stopWatch = new System.Diagnostics.Stopwatch();
                     await downloadCounter.WaitAsync(data.cancellationToken.Token);
