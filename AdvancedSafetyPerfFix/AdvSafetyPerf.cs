@@ -83,20 +83,20 @@ namespace Zettai
                 }
                 renderer.GetSharedMaterials(ComponentAdjustment.OurMaterialsList);
                 if (ComponentAdjustment.OurMaterialsList.Count == 0)
-                     return;
+                    return;
 
-                    foreach (var ourMaterial in ComponentAdjustment.OurMaterialsList)
-                    {
-                        if (ourMaterial == null || ourMaterial.shader == ComponentAdjustment._standardShader)
-                            continue;
-                        if (!ShaderNameAcceptable(ourMaterial?.shader))
-                            ourMaterial.shader = ComponentAdjustment._standardShader;
-                    }
+                foreach (var ourMaterial in ComponentAdjustment.OurMaterialsList)
+                {
+                    if (ourMaterial == null || ourMaterial.shader == ComponentAdjustment._standardShader)
+                        continue;
+                    if (!ShaderNameAcceptable(ourMaterial?.shader))
+                        ourMaterial.shader = ComponentAdjustment._standardShader;
+                }
                 var mesh = skinnedMeshRenderer ? skinnedMeshRenderer.sharedMesh : null;
                 if (!mesh)
                     mesh = meshFilter ? meshFilter.sharedMesh : null;
                 int subMeshCount = 0;
-                if (mesh) 
+                if (mesh)
                 {
                     meshesCount++;
                     if (meshesCount >= maxMeshes)
