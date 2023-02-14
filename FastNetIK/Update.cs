@@ -3,7 +3,6 @@ using MelonLoader;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Threading;
 using Unity.Collections;
 using Unity.Jobs;
@@ -47,14 +46,14 @@ namespace Zettai
                 {
                     while (!playersToProcess.IsEmpty)
                     {
-                        if (playersToProcess.TryDequeue(out var player))
+                        if (!playersToProcess.TryDequeue(out var player))
+                            continue;
+
+                        if (players.TryGetValue(player, out var data))
                         {
-                            if (players.TryGetValue(player, out var data))
-                            {
-                                UpdatePlayer(data, time, muscles);
-                            }
-                            Interlocked.Increment(ref playersProcessed);
+                            UpdatePlayer(data, time, muscles);
                         }
+                        Interlocked.Increment(ref playersProcessed);
                     }
                     if (playersProcessed == playerCount && doneProcessing.CurrentCount == 0)
                     {
@@ -121,12 +120,17 @@ namespace Zettai
         public static void EndProcessing()
         {
             writeStarted = true;
-            if (playersProcessed == playerCount || doneProcessing.Wait(2))
+            if (playersProcessed != playerCount)
             {
-                UpdateArrays();
-                writeJobHandle = new ApplyAllLocalTransforms(transformInfoInitArray).Schedule(transformsAccess);
-                playersProcessed = 0;
+                MelonLogger.Msg("EndProcessing - Waiting");
+                doneProcessing.Wait(2);
             }
+            playersProcessed = 0;
+        }
+        public static void StartJobs()
+        {
+            UpdateArrays();
+            writeJobHandle = new ApplyAllLocalTransforms(transformInfoInitArray).Schedule(transformsAccess);
         }
         private static void UpdateArrays()
         {
@@ -198,16 +202,15 @@ namespace Zettai
                     if (puppetMaster._isBlocked && !puppetMaster._isBlockedAlt)
                         rot -= netIkData.dataPrev.RelativeHipRotation - puppetMaster.relativeHipRotation;
                     netIkData.hipsRot2 = Quaternion.Euler(rot);
-
                     netIkData.rootRot2 = Quaternion.Euler(netIkData.dataPrev.RootRotation);
                     netIkData.hipsPos2 = netIkData.dataPrev.BodyPosition;
                     netIkData.rootPos2 = netIkData.dataPrev.RootPosition;
                     SetMuscleValues(muscles, netIkData.dataPrev);
                     for (int i = 0; i < netIkData.rotations2.Length; i++)
                     {
-                        netIkData.rotations2[i] = GetBoneRotation(netIkData.boneElements[i], muscles);
+                        netIkData.rotations2[i] = PoseHandling.GetBoneRotation(netIkData.boneElements[i], muscles);
                     }
-                    FixBoneTwist(netIkData.rotations2, netIkData.boneElements, muscles);
+                    PoseHandling.FixBoneTwist(netIkData.rotations2, netIkData.boneElements, muscles);
                 }
                 netIkData.updateCurr = puppetMaster._lastUpdate;
                 netIkData.dataCurr = puppetMaster._playerAvatarMovementDataCurrent;
@@ -215,128 +218,51 @@ namespace Zettai
                 if (puppetMaster._isBlocked && !puppetMaster._isBlockedAlt)
                     rot -= netIkData.dataPrev.RelativeHipRotation - puppetMaster.relativeHipRotation;
                 netIkData.hipsRot1 = Quaternion.Euler(rot);
-
                 netIkData.rootRot1 = Quaternion.Euler(netIkData.dataCurr.RootRotation);
                 netIkData.hipsPos1 = netIkData.dataCurr.BodyPosition;
                 netIkData.rootPos1 = netIkData.dataCurr.RootPosition;
                 SetMuscleValues(muscles, netIkData.dataCurr);
                 for (int i = 0; i < netIkData.rotations1.Length; i++)
                 {
-                    netIkData.rotations1[i] = GetBoneRotation(netIkData.boneElements[i], muscles);
+                    netIkData.rotations1[i] = PoseHandling.GetBoneRotation(netIkData.boneElements[i], muscles);
                 }
-                FixBoneTwist(netIkData.rotations1, netIkData.boneElements, muscles);
+                PoseHandling.FixBoneTwist(netIkData.rotations1, netIkData.boneElements, muscles);
             }
             // interpolate rotations
 
-            var t = Mathf.Min((time - puppetMaster._lastUpdate) / puppetMaster.UpdateIntervalCalculated, 1f); // progress
-            netIkData.hipsRotInterpolated = Quaternion.Slerp(netIkData.hipsRot2, netIkData.hipsRot1, t);
-            netIkData.rootRotInterpolated = Quaternion.Slerp(netIkData.rootRot2, netIkData.rootRot1, t);
-            netIkData.hipsPosInterpolated = Vector3.Lerp(netIkData.hipsPos2, netIkData.hipsPos1, t);
-            netIkData.rootPosInterpolated = Vector3.Lerp(netIkData.rootPos2, netIkData.rootPos1, t);
+            var t = math.min((time - puppetMaster._lastUpdate) / puppetMaster.UpdateIntervalCalculated, 1f); // progress
+            netIkData.hipsRotInterpolated = math.slerp(netIkData.hipsRot2, netIkData.hipsRot1, t);
+            netIkData.rootRotInterpolated = math.slerp(netIkData.rootRot2, netIkData.rootRot1, t);
+            netIkData.hipsPosInterpolated = math.lerp(netIkData.hipsPos2, netIkData.hipsPos1, t);
+            netIkData.rootPosInterpolated = math.lerp(netIkData.rootPos2, netIkData.rootPos1, t);
             if (netIkData.dataCurr.IndexUseIndividualFingers)
             {
+                bool setFingersOn = netIkData.fingers == true;
                 for (int i = 1; i < netIkData.transformInfos.Length; i++)
                 {
                     netIkData.transformInfos[i].initLocalRotation = math.slerp(netIkData.rotations2[i], netIkData.rotations1[i], t);
-                    if (!netIkData.transformInfos[i].IsTransform)
-                        netIkData.transformInfos[i].IsTransform = true;
+                    if (setFingersOn)
+                        netIkData.transformInfos[i].IsEnabled = true;
                 }
+                netIkData.fingers = true;
             }
             else
             {
+                bool setFingersOff = netIkData.fingers == true;
                 for (int i = 1; i < netIkData.transformInfos.Length; i++)
                 {
-                    if (i < (int)HumanBodyBones.LeftThumbProximal || i == 54)
+                    if (!FingerBones.Contains(i))
                         netIkData.transformInfos[i].initLocalRotation = math.slerp(netIkData.rotations2[i], netIkData.rotations1[i], t);
-                    else if (netIkData.transformInfos[i].IsTransform)
-                        netIkData.transformInfos[i].IsTransform = false;
+                    else if (setFingersOff)
+                        netIkData.transformInfos[i].IsEnabled = false;
                 }
+                netIkData.fingers = false;
             }
         }
-        private static void FixBoneTwist(quaternion[] rotations, BoneElement[] boneElements, float[] muscles)
-        {
-            var startIndex = (int)HumanBodyBones.LeftUpperArm;
-            var startMuscle = 41;
-            var boneElementUpperLeft = boneElements[startIndex];
-            var upperMuscleLeft = muscles[startMuscle];
-            var boneElementForearmLeft = boneElements[startIndex + 2];
-            var forearmMuscleLeft = muscles[startMuscle + 2];
-
-            var boneElementUpperRight = boneElements[startIndex + 1];
-            var upperMuscleRight = muscles[startMuscle + 9];
-            var boneElementForearmRight = boneElements[startIndex + 3];
-            var forearmMuscleRight = muscles[startMuscle + 11];
-
-            FixLimbs(rotations, upperMuscleLeft, forearmMuscleLeft, boneElementUpperLeft, boneElementForearmLeft, startIndex);
-            FixLimbs(rotations, upperMuscleRight, forearmMuscleRight, boneElementUpperRight, boneElementForearmRight, startIndex + 1);
-
-            startIndex = (int)HumanBodyBones.LeftUpperLeg;
-            startMuscle = 23;
-            boneElementUpperLeft = boneElements[startIndex];
-            upperMuscleLeft = muscles[startMuscle];
-            boneElementForearmLeft = boneElements[startIndex + 2];
-            forearmMuscleLeft = muscles[startMuscle + 2];
-
-            boneElementUpperRight = boneElements[startIndex + 1];
-            upperMuscleRight = muscles[startMuscle + 8];
-            boneElementForearmRight = boneElements[startIndex + 3];
-            forearmMuscleRight = muscles[startMuscle + 10];
-
-            FixLimbs(rotations, upperMuscleLeft, forearmMuscleLeft, boneElementUpperLeft, boneElementForearmLeft, startIndex);
-            FixLimbs(rotations, upperMuscleRight, forearmMuscleRight, boneElementUpperRight, boneElementForearmRight, startIndex + 1);
-        }
-        static void FixLimbs(quaternion[] rotations, float upperMuscle, float middleMuscle, BoneElement boneElementUpper,
-            BoneElement boneElementMiddle, int startIndex)
-        {
-            upperMuscle *= boneElementUpper.twistValue;
-            var scale = upperMuscle >= 0 ? boneElementUpper.max.x : boneElementUpper.minAbs.x;
-            var angleUpper = boneElementUpper.sign.x * scale * upperMuscle;
-            var twistUpper = Quaternion.Euler(angleUpper, 0f, 0f);
-            var rot = boneElementUpper.preQInv * rotations[startIndex] * boneElementUpper.postQ;
-            rot = boneElementUpper.preQ * rot * Quaternion.Inverse(twistUpper) * boneElementUpper.postQInv;
-            rotations[startIndex] = rot;
-
-            middleMuscle *= 1f - boneElementMiddle.twistValue; // 1f - x ? idk
-            var scaleMiddle = middleMuscle >= 0 ? boneElementMiddle.max.x : boneElementMiddle.minAbs.x;
-            var angleMiddle = boneElementMiddle.sign.x * scaleMiddle * middleMuscle;
-            var rotMiddleEuler = ((Quaternion)rotations[startIndex + 2]).eulerAngles;
-            rotMiddleEuler.y += angleUpper;
-            var rotMiddle = Quaternion.Euler(rotMiddleEuler);
-            rotations[startIndex + 2] = rotMiddle;
-
-            var rotEndEuler = ((Quaternion)rotations[startIndex + 4]).eulerAngles;
-            rotEndEuler.y += angleMiddle;
-            var rotFoot = Quaternion.Euler(rotEndEuler);
-            rotations[startIndex + 4] = rotFoot;
-
-            //would make more sense but no.
-            //var rotHand = boneElementHand.preQ * Quaternion.Euler(angleMiddle, 0f, 0f) * boneElementHand.tPoseQ * boneElementHand.postQInv;
-            //rotations[startIndex + 4] = rotHand;
-        }
-        private static Quaternion GetBoneRotation(BoneElement boneElement, float[] muscles)
-        {
-            var dof = boneElement.dofExists;
-            if (!dof.w)
-                return Quaternion.identity;
-            var id = boneElement.muscleIds;
-            var rawMuscleValue = new Vector3(dof.x ? muscles[id.x] : 0f, dof.y ? muscles[id.y] : 0f, dof.z ? muscles[id.z] : 0f);
-            if (boneElement.mixIndex > 0)
-                rawMuscleValue.x *= boneElement.twistValue;
-
-            var scale = new Vector3(
-                dof.x ? (rawMuscleValue.x >= 0f ? boneElement.max.x : boneElement.minAbs.x) : 0f,
-                dof.y ? (rawMuscleValue.y >= 0f ? boneElement.max.y : boneElement.minAbs.y) : 0f,
-                dof.z ? (rawMuscleValue.z >= 0f ? boneElement.max.z : boneElement.minAbs.z) : 0f);
-            var _angle = Vector3.Scale(boneElement.sign, Vector3.Scale(scale, rawMuscleValue));
-            var twist = Quaternion.Euler(_angle.x, 0f, 0f);
-            var rotY = Mathf.Tan(Mathf.Deg2Rad * _angle.y * 0.5f);
-            var rotZ = Mathf.Tan(Mathf.Deg2Rad * _angle.z * 0.5f);
-            var tPoseQ = new Quaternion(0f, rotY, rotZ, 1f);
-            tPoseQ.Normalize();
-            tPoseQ *= twist;
-            var result = boneElement.preQ * tPoseQ * boneElement.postQInv;
-            return result;
-        }
+        private static readonly HashSet<int> FingerBones = new HashSet<int>(new int[]
+        { 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53 });
+    
+        
         internal static void SetMuscleValues(float[] muscles, PlayerAvatarMovementData data)
         {
             muscles[(int)MuscleNamesEnum.SpineFrontBack] = data.SpineFrontBack;

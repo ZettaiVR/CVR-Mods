@@ -5,14 +5,14 @@ namespace Zettai
 {
     public struct BoneElement
     {
-        public Vector3 min;
-        public Vector3 minAbs;
-        public Vector3 max;
-       //public Vector3 center;
+        public float3 min;
+        public float3 minAbs;
+        public float3 max;
+        public float3 center;
         public Transform transform;
         public bool4 dofExists;
         public int3 muscleIds;
-        public Vector3 sign;
+        public float3 sign;
         public Quaternion preQ;
         public Quaternion preQInv;
         public Quaternion postQ;

@@ -11,6 +11,7 @@ namespace Zettai
         public Animator animator;
         public PuppetMaster puppetMaster;
         public BoneElement[] boneElements = new BoneElement[BoneCount];
+        public bool fingers;
         public float upperArmTwist;
         public float lowerArmTwist;
         public float upperLegTwist;

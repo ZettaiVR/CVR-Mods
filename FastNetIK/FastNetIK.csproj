@@ -67,6 +67,7 @@
     <Compile Include="FastNetIkMod.cs" />
     <Compile Include="MuscleNamesEnum.cs" />
     <Compile Include="NetIkData.cs" />
+    <Compile Include="PoseHandling.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Setup.cs" />
     <Compile Include="Update.cs" />

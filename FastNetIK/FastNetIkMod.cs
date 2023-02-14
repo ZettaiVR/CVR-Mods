@@ -1,5 +1,4 @@
-﻿using System;
-using MelonLoader;
+﻿using MelonLoader;
 using HarmonyLib;
 using ABI_RC.Core.Player;
 using UnityEngine;
@@ -29,11 +28,11 @@ namespace Zettai
         {
             static void Postfix()
             {
-                if (netIk.Value)
-                {
-                    Update.StartProcessing();
-                    processingEnded = false;
-                }
+                if (!netIk.Value)
+                    return;
+
+                Update.StartProcessing();
+                processingEnded = false;
             }
         }
         [HarmonyPatch(typeof(PuppetMaster), nameof(PuppetMaster.AvatarInstantiated))]
@@ -51,6 +50,17 @@ namespace Zettai
             static void Postfix(PuppetMaster __instance)
             {
                 Update.RemovePlayer(__instance);
+            }
+        }
+        [HarmonyPatch(typeof(PlayerSetup), nameof(PlayerSetup.LateUpdate))]
+        class PlayerSetupLateUpdate
+        {
+            static void Prefix()
+            {
+                if (!netIk.Value)
+                    return;
+
+                Update.StartJobs();
             }
         }
         [HarmonyPatch(typeof(PlayerAvatarMovementData), nameof(PlayerAvatarMovementData.WriteDataToAnimatorLerped))]
