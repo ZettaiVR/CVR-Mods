@@ -248,10 +248,13 @@ namespace Zettai
                         }
                         catch (System.Exception) { }
                     }
+                    item.Key.globalCollidersChanged = true;
                     item.Value.Clear();
                 }
                 foreach (var item in addAvatarColliders)
+                {
                     foreach (var collider in item.Value)
+                    {
                         if (item.Key.initDone)
                         {
                             try
@@ -260,7 +263,9 @@ namespace Zettai
                             }
                             catch (System.Exception) { }
                         }
-                   
+                    }
+                    item.Key.globalCollidersChanged = true;
+                } 
 
                 return false;
             }
