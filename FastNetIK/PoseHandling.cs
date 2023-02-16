@@ -56,7 +56,7 @@ namespace Zettai
                 boneData.postQ = GetPostRotation(avatar, (HumanBodyBones)index);
                 boneData.preQInv = Quaternion.Inverse(boneData.preQ);
                 boneData.postQInv = Quaternion.Inverse(boneData.postQ);
-                boneData.transform = animator.GetBoneTransform((HumanBodyBones)index);
+        //      boneData.transform = animator.GetBoneTransform((HumanBodyBones)index);
                 var limit = humanBone.limit;
                 int x = HumanTrait.MuscleFromBone(index, 0);
                 int y = HumanTrait.MuscleFromBone(index, 1);
@@ -146,49 +146,11 @@ namespace Zettai
       
         private static void GetTwists(BoneElement[] boneElements, HumanDescription hd)
         {
-            foreach (int i in twistyBones)
-            {
-                var boneData = boneElements[i];
-                switch (boneData.humanBodyBoneId)
-                {
-                    case HumanBodyBones.LeftUpperArm:
-                    case HumanBodyBones.RightUpperArm:
-                        boneData.twistValue = 1f - hd.upperArmTwist;
-                        break;
-                    case HumanBodyBones.LeftLowerArm:
-                    case HumanBodyBones.RightLowerArm:
-                        boneData.twistValue = 1f - hd.lowerArmTwist;
-                        break;
-                    case HumanBodyBones.LeftLowerLeg:
-                    case HumanBodyBones.RightLowerLeg:
-                        boneData.twistValue = 1f - hd.lowerLegTwist;
-                        break;
-                    case HumanBodyBones.LeftUpperLeg:
-                    case HumanBodyBones.RightUpperLeg:
-                        boneData.twistValue = 1f - hd.upperLegTwist;
-                        break;
-                    default:
-                        break;
-                }
-                boneElements[i] = boneData;
-            }
+            boneElements[1].twistValue  = boneElements[2].twistValue  = 1f - hd.upperLegTwist;
+            boneElements[3].twistValue  = boneElements[4].twistValue  = 1f - hd.lowerLegTwist;
+            boneElements[13].twistValue = boneElements[14].twistValue = 1f - hd.upperArmTwist;
+            boneElements[15].twistValue = boneElements[16].twistValue = 1f - hd.lowerArmTwist;
         }
-
-        internal static readonly int[] twistyBones = new int[]
-          {
-            (int)HumanBodyBones.LeftUpperLeg,
-            (int)HumanBodyBones.RightUpperLeg,
-            (int)HumanBodyBones.LeftLowerLeg,
-            (int)HumanBodyBones.RightLowerLeg,
-            (int)HumanBodyBones.LeftFoot,
-            (int)HumanBodyBones.RightFoot,
-            (int)HumanBodyBones.LeftUpperArm,
-            (int)HumanBodyBones.RightUpperArm,
-            (int)HumanBodyBones.LeftLowerArm,
-            (int)HumanBodyBones.RightLowerArm,
-            (int)HumanBodyBones.LeftHand,
-            (int)HumanBodyBones.RightHand,
-          };
 
         private static List<string> boneNames;
         private const float Deg2RadHalf = Mathf.Deg2Rad * 0.5f;

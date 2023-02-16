@@ -17,7 +17,6 @@ namespace Zettai
         public Quaternion postQ;
         public Quaternion postQInv;
         public HumanBodyBones humanBodyBoneId;
-
-        public Transform transform;
+    //    public Transform transform;
     }
 }
