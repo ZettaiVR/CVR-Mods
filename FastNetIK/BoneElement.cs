@@ -19,6 +19,5 @@ namespace Zettai
         public Quaternion postQInv;
         public HumanBodyBones humanBodyBoneId;
         public float twistValue;
-        public int mixIndex;
     }
 }

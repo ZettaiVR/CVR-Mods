@@ -15,19 +15,19 @@ namespace Zettai
             if (!dof.w)
                 return Quaternion.identity;
             var id = boneElement.muscleIds;
-            var rawMuscleValue = new float3(dof.x ? muscles[id.x] : 0f, dof.y ? muscles[id.y] : 0f, dof.z ? muscles[id.z] : 0f);
-            if (boneElement.mixIndex > 0)
-                rawMuscleValue.x *= boneElement.twistValue;
-
+            var rawMuscleValue = new float3(
+                dof.x ? muscles[id.x] * boneElement.twistValue : 0f, 
+                dof.y ? muscles[id.y] : 0f,
+                dof.z ? muscles[id.z] : 0f);
             var scale = new float3(
                 dof.x ? (rawMuscleValue.x >= 0f ? boneElement.max.x : boneElement.minAbs.x) : 0f,
                 dof.y ? (rawMuscleValue.y >= 0f ? boneElement.max.y : boneElement.minAbs.y) : 0f,
                 dof.z ? (rawMuscleValue.z >= 0f ? boneElement.max.z : boneElement.minAbs.z) : 0f);
-            var _angle = boneElement.sign * scale * rawMuscleValue;
-            var twist = Quaternion.Euler(_angle.x, 0f, 0f);
+            var _angle = boneElement.center + (boneElement.sign * scale * rawMuscleValue);  // boneElement.center is pure guess based on docs.
+            var twist = Quaternion.Euler(_angle.x, 0f, 0f);                                 // I couldn't find a way to add an offset with the humanoid rig import.
             var rotY = Mathf.Tan(Deg2RadHalf * _angle.y);       // Mathf.Tan results the same values as HumanPoseHandler, math.tan or Math.Tan will differ slightly.
             var rotZ = Mathf.Tan(Deg2RadHalf * _angle.z);       // Don't worry, you can use Mathf in Burst jobs just fine.
-            var tPoseQ = new Quaternion(0f, rotY, rotZ, 1f);
+            var tPoseQ = new Quaternion(0f, rotY, rotZ, 1f);    // Thanks to knah for figuring this out.
             tPoseQ.Normalize();
             tPoseQ *= twist;
             var result = boneElement.preQ * tPoseQ * boneElement.postQInv;
@@ -72,23 +72,18 @@ namespace Zettai
                     boneData.max = limit.max;
                     boneData.min = limit.min;
                     boneData.center = limit.center;
-                    boneData.minAbs.x = Mathf.Abs(boneData.min.x);
-                    boneData.minAbs.y = Mathf.Abs(boneData.min.y);
-                    boneData.minAbs.z = Mathf.Abs(boneData.min.z);
                 }
                 else
                 {
                     boneData.max.x = HumanTrait.GetMuscleDefaultMax(x);
                     boneData.max.y = HumanTrait.GetMuscleDefaultMax(y);
                     boneData.max.z = HumanTrait.GetMuscleDefaultMax(z);
-                    boneData.center = Vector3.zero;
+                    boneData.center = float3.zero;
                     boneData.min.x = HumanTrait.GetMuscleDefaultMin(x);
                     boneData.min.y = HumanTrait.GetMuscleDefaultMin(y);
                     boneData.min.z = HumanTrait.GetMuscleDefaultMin(z);
-                    boneData.minAbs.x = Mathf.Abs(boneData.min.x);
-                    boneData.minAbs.y = Mathf.Abs(boneData.min.y);
-                    boneData.minAbs.z = Mathf.Abs(boneData.min.z);
                 }
+                boneData.minAbs = math.abs(boneData.min);
                 transformInfos[index] = new TransformInfoInit
                 {
                     HasMultipleChildren = false,
@@ -137,7 +132,7 @@ namespace Zettai
         private static void FixLimbs(quaternion[] rotations, float upperMuscle, float middleMuscle, BoneElement boneElementUpper,
             BoneElement boneElementMiddle, int startIndex)
         {
-            upperMuscle *= boneElementUpper.twistValue;
+            upperMuscle *= 1f - boneElementUpper.twistValue;
             var scale = upperMuscle >= 0 ? boneElementUpper.max.x : boneElementUpper.minAbs.x;
             var angleUpper = boneElementUpper.sign.x * scale * upperMuscle;
             var twistUpper = Quaternion.Euler(angleUpper, 0f, 0f);
@@ -145,10 +140,13 @@ namespace Zettai
             rot = boneElementUpper.preQ * rot * Quaternion.Inverse(twistUpper) * boneElementUpper.postQInv;
             rotations[startIndex] = rot;
 
-            middleMuscle *= 1f - boneElementMiddle.twistValue; // 1f - x ? idk
+            middleMuscle *= 1f - boneElementMiddle.twistValue;
             var scaleMiddle = middleMuscle >= 0 ? boneElementMiddle.max.x : boneElementMiddle.minAbs.x;
             var angleMiddle = boneElementMiddle.sign.x * scaleMiddle * middleMuscle;
-            var rotMiddleEuler = ((Quaternion)rotations[startIndex + 2]).eulerAngles;
+            var twistMiddle = Quaternion.Euler(angleMiddle, 0f, 0f);
+            rot = boneElementMiddle.preQInv * rotations[startIndex + 2] * boneElementMiddle.postQ;
+            rot = boneElementMiddle.preQ * rot * Quaternion.Inverse(twistMiddle) * boneElementMiddle.postQInv;
+            var rotMiddleEuler = rot.eulerAngles;
             rotMiddleEuler.y += angleUpper;
             var rotMiddle = Quaternion.Euler(rotMiddleEuler);
             rotations[startIndex + 2] = rotMiddle;
@@ -175,36 +173,16 @@ namespace Zettai
                         boneData.twistValue = 1f - hd.upperArmTwist;
                         break;
                     case HumanBodyBones.LeftLowerArm:
-                        boneData.twistValue = 1f - hd.lowerArmTwist;
-                        boneData.mixIndex = (int)MuscleNamesEnum.LeftArmTwistInOut;
-                        break;
                     case HumanBodyBones.RightLowerArm:
                         boneData.twistValue = 1f - hd.lowerArmTwist;
-                        boneData.mixIndex = (int)MuscleNamesEnum.RightArmTwistInOut;
                         break;
                     case HumanBodyBones.LeftLowerLeg:
-                        boneData.twistValue = 1f - hd.lowerLegTwist;
-                        boneData.mixIndex = (int)MuscleNamesEnum.LeftUpperLegTwistInOut;
-                        break;
                     case HumanBodyBones.RightLowerLeg:
                         boneData.twistValue = 1f - hd.lowerLegTwist;
-                        boneData.mixIndex = (int)MuscleNamesEnum.RightUpperLegTwistInOut;
                         break;
                     case HumanBodyBones.LeftUpperLeg:
                     case HumanBodyBones.RightUpperLeg:
                         boneData.twistValue = 1f - hd.upperLegTwist;
-                        break;
-                    case HumanBodyBones.LeftHand:
-                        boneData.mixIndex = (int)MuscleNamesEnum.LeftForearmTwistInOut;
-                        break;
-                    case HumanBodyBones.RightHand:
-                        boneData.mixIndex = (int)MuscleNamesEnum.RightForearmTwistInOut;
-                        break;
-                    case HumanBodyBones.LeftFoot:
-                        boneData.mixIndex = (int)MuscleNamesEnum.LeftLowerLegTwistInOut;
-                        break;
-                    case HumanBodyBones.RightFoot:
-                        boneData.mixIndex = (int)MuscleNamesEnum.RightLowerLegTwistInOut;
                         break;
                     default:
                         break;
@@ -231,9 +209,10 @@ namespace Zettai
 
         private static List<string> boneNames;
         private const float Deg2RadHalf = Mathf.Deg2Rad * 0.5f;
-        private static readonly MethodInfo __GetPreRotation = typeof(Avatar).GetMethod("GetPreRotation", BindingFlags.NonPublic | BindingFlags.Instance);
-        private static readonly MethodInfo __GetPostRotation = typeof(Avatar).GetMethod("GetPostRotation", BindingFlags.NonPublic | BindingFlags.Instance);
-        private static readonly MethodInfo __GetLimitSign = typeof(Avatar).GetMethod("GetLimitSign", BindingFlags.NonPublic | BindingFlags.Instance);
+        private const BindingFlags privateInstance = BindingFlags.NonPublic | BindingFlags.Instance;
+        private static readonly MethodInfo __GetPreRotation = typeof(Avatar).GetMethod("GetPreRotation", privateInstance);
+        private static readonly MethodInfo __GetPostRotation = typeof(Avatar).GetMethod("GetPostRotation", privateInstance);
+        private static readonly MethodInfo __GetLimitSign = typeof(Avatar).GetMethod("GetLimitSign", privateInstance);
         private static Vector3 GetLimitSign(Avatar _avatar, HumanBodyBones humanBodyBone) => GetLimitSignDelegate(_avatar, humanBodyBone);
         private static Quaternion GetPreRotation(Avatar _avatar, HumanBodyBones humanBodyBone) => GetPreRotationDelegate(_avatar, humanBodyBone);
         private static Quaternion GetPostRotation(Avatar _avatar, HumanBodyBones humanBodyBone) => GetPostRotationDelegate(_avatar, humanBodyBone);
