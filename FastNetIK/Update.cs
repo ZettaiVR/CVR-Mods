@@ -52,8 +52,8 @@ namespace Zettai
                         if (players.TryGetValue(player, out var data))
                         {
                             UpdatePlayer(data, time, muscles);
+                            Interlocked.Increment(ref playersProcessed);
                         }
-                        Interlocked.Increment(ref playersProcessed);
                     }
                     if (playersProcessed == playerCount && doneProcessing.CurrentCount == 0)
                     {
@@ -122,8 +122,15 @@ namespace Zettai
             writeStarted = true;
             if (playersProcessed != playerCount)
             {
-                MelonLogger.Msg("EndProcessing - Waiting");
-                doneProcessing.Wait(2);
+                doneProcessing.Wait(8); // if it takes more than 8 ms there's clearly something wrong there
+                if (!playersToProcess.IsEmpty)
+                {
+                    var count = playersToProcess.Count;
+                    for (int i = 0; i < count; i++)
+                    {
+                        playersToProcess.TryDequeue(out var _);
+                    }
+                }
             }
             playersProcessed = 0;
         }
@@ -229,7 +236,6 @@ namespace Zettai
                 PoseHandling.FixBoneTwist(netIkData.rotations1, netIkData.boneElements, muscles);
             }
             // interpolate rotations
-
             var t = math.min((time - puppetMaster._lastUpdate) / puppetMaster.UpdateIntervalCalculated, 1f); // progress
             netIkData.hipsRotInterpolated = math.slerp(netIkData.hipsRot2, netIkData.hipsRot1, t);
             netIkData.rootRotInterpolated = math.slerp(netIkData.rootRot2, netIkData.rootRot1, t);
@@ -260,9 +266,8 @@ namespace Zettai
             else if (netIkData.fingers)
             {
                 for (int i = 24; i < 54; i++)
-                {
                     netIkData.transformInfos[i].IsEnabled = false;
-                }
+
                 netIkData.fingers = false;
             }
         }

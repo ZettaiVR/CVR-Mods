@@ -7,7 +7,7 @@ namespace Zettai
     {
         public const int BoneCount = (int)HumanBodyBones.LastBone;
 
-        public bool fingers;
+        public bool fingers = true;
         public Avatar avatar;
         public Animator animator;
         public PuppetMaster puppetMaster;
