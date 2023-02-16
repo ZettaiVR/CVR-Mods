@@ -1,29 +1,22 @@
 ﻿using ABI_RC.Core.Player;
-using Unity.Mathematics;
 using UnityEngine;
 
 namespace Zettai
 {
     public class NetIkData
     {
-        private static readonly int BoneCount = (int)HumanBodyBones.LastBone;
+        public const int BoneCount = (int)HumanBodyBones.LastBone;
+
+        public bool fingers;
         public Avatar avatar;
         public Animator animator;
         public PuppetMaster puppetMaster;
         public BoneElement[] boneElements = new BoneElement[BoneCount];
-        public bool fingers;
-        public float upperArmTwist;
-        public float lowerArmTwist;
-        public float upperLegTwist;
-        public float lowerLegTwist;
-        public float armStretch;
-        public float legStretch;
-        public float feetSpacing;
         public PlayerAvatarMovementData dataCurr;
         public PlayerAvatarMovementData dataPrev;
         public Transform[] rotTransforms = new Transform[BoneCount];
-        public quaternion[] rotations1 = new quaternion[BoneCount];
-        public quaternion[] rotations2 = new quaternion[BoneCount];
+        public Quaternion[] rotations1 = new Quaternion[BoneCount];
+        public Quaternion[] rotations2 = new Quaternion[BoneCount];
         public TransformInfoInit[] transformInfos = new TransformInfoInit[BoneCount];
         public Transform root;
         public Transform hips;

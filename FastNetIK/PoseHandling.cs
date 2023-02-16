@@ -20,9 +20,9 @@ namespace Zettai
                 dof.y ? muscles[id.y] : 0f,
                 dof.z ? muscles[id.z] : 0f);
             var scale = new float3(
-                rawMuscleValue.x >= 0f ? boneElement.max.x : boneElement.minAbs.x,
-                rawMuscleValue.y >= 0f ? boneElement.max.y : boneElement.minAbs.y,
-                rawMuscleValue.z >= 0f ? boneElement.max.z : boneElement.minAbs.z);
+                rawMuscleValue.x >= 0f ? boneElement.max.x : boneElement.min.x,
+                rawMuscleValue.y >= 0f ? boneElement.max.y : boneElement.min.y,
+                rawMuscleValue.z >= 0f ? boneElement.max.z : boneElement.min.z);
             var _angle = boneElement.center + (boneElement.sign * scale * rawMuscleValue);  // boneElement.center is pure guess based on docs.
             var twist = Quaternion.Euler(_angle.x, 0f, 0f);                                 // I couldn't find a way to add an offset with the humanoid rig import.
             var rotY = Mathf.Tan(Deg2RadHalf * _angle.y);       // Mathf.Tan results the same values as HumanPoseHandler, math.tan or Math.Tan will differ slightly.
@@ -69,21 +69,20 @@ namespace Zettai
                 boneData.muscleIds.z = z;
                 if (!limit.useDefaultValues)
                 {
+                    boneData.min = math.abs(limit.min);
                     boneData.max = limit.max;
-                    boneData.min = limit.min;
                     boneData.center = limit.center;
                 }
                 else
                 {
+                    boneData.min.x = math.abs(HumanTrait.GetMuscleDefaultMin(x));
+                    boneData.min.y = math.abs(HumanTrait.GetMuscleDefaultMin(y));
+                    boneData.min.z = math.abs(HumanTrait.GetMuscleDefaultMin(z));
                     boneData.max.x = HumanTrait.GetMuscleDefaultMax(x);
                     boneData.max.y = HumanTrait.GetMuscleDefaultMax(y);
                     boneData.max.z = HumanTrait.GetMuscleDefaultMax(z);
                     boneData.center = float3.zero;
-                    boneData.min.x = HumanTrait.GetMuscleDefaultMin(x);
-                    boneData.min.y = HumanTrait.GetMuscleDefaultMin(y);
-                    boneData.min.z = HumanTrait.GetMuscleDefaultMin(z);
                 }
-                boneData.minAbs = math.abs(boneData.min);
                 transformInfos[index] = new TransformInfoInit
                 {
                     HasMultipleChildren = false,
@@ -97,43 +96,27 @@ namespace Zettai
             GetTwists(boneElements, hd);
         }
 
-        public static void FixBoneTwist(quaternion[] rotations, BoneElement[] boneElements, float[] muscles)
+        public static void FixBoneTwist(Quaternion[] rotations, BoneElement[] boneElements, float[] muscles)
         {
-            var startIndex = (int)HumanBodyBones.LeftUpperArm;
-            var startMuscle = 41;
-            var boneElementUpperLeft = boneElements[startIndex];
-            var upperMuscleLeft = muscles[startMuscle];
-            var boneElementForearmLeft = boneElements[startIndex + 2];
-            var forearmMuscleLeft = muscles[startMuscle + 2];
-
-            var boneElementUpperRight = boneElements[startIndex + 1];
-            var upperMuscleRight = muscles[startMuscle + 9];
-            var boneElementForearmRight = boneElements[startIndex + 3];
-            var forearmMuscleRight = muscles[startMuscle + 11];
-
-            FixLimbs(rotations, upperMuscleLeft, forearmMuscleLeft, boneElementUpperLeft, boneElementForearmLeft, startIndex);
-            FixLimbs(rotations, upperMuscleRight, forearmMuscleRight, boneElementUpperRight, boneElementForearmRight, startIndex + 1);
-
-            startIndex = (int)HumanBodyBones.LeftUpperLeg;
-            startMuscle = 23;
-            boneElementUpperLeft = boneElements[startIndex];
-            upperMuscleLeft = muscles[startMuscle];
-            boneElementForearmLeft = boneElements[startIndex + 2];
-            forearmMuscleLeft = muscles[startMuscle + 2];
-
-            boneElementUpperRight = boneElements[startIndex + 1];
-            upperMuscleRight = muscles[startMuscle + 8];
-            boneElementForearmRight = boneElements[startIndex + 3];
-            forearmMuscleRight = muscles[startMuscle + 10];
-
-            FixLimbs(rotations, upperMuscleLeft, forearmMuscleLeft, boneElementUpperLeft, boneElementForearmLeft, startIndex);
-            FixLimbs(rotations, upperMuscleRight, forearmMuscleRight, boneElementUpperRight, boneElementForearmRight, startIndex + 1);
+            FixLimbChain(rotations, boneElements, muscles, (int)HumanBodyBones.LeftUpperArm, (int)MuscleNamesEnum.LeftArmTwistInOut);
+            FixLimbChain(rotations, boneElements, muscles, (int)HumanBodyBones.RightUpperArm, (int)MuscleNamesEnum.RightArmTwistInOut);
+            FixLimbChain(rotations, boneElements, muscles, (int)HumanBodyBones.LeftUpperLeg, (int)MuscleNamesEnum.LeftUpperLegTwistInOut);
+            FixLimbChain(rotations, boneElements, muscles, (int)HumanBodyBones.RightUpperLeg, (int)MuscleNamesEnum.RightUpperLegTwistInOut);
         }
-        private static void FixLimbs(quaternion[] rotations, float upperMuscle, float middleMuscle, BoneElement boneElementUpper,
+        private static void FixLimbChain(Quaternion[] rotations, BoneElement[] boneElements, float[] muscles, int startIndex, int startMuscle) 
+        {
+            var boneElementUpper = boneElements[startIndex];
+            var upperMuscle = muscles[startMuscle];
+            var boneElementMiddle = boneElements[startIndex + 2];
+            var middleMuscle = muscles[startMuscle + 2];
+            FixLimbs(rotations, upperMuscle, middleMuscle, boneElementUpper, boneElementMiddle, startIndex);
+        }
+
+        private static void FixLimbs(Quaternion[] rotations, float upperMuscle, float middleMuscle, BoneElement boneElementUpper,
             BoneElement boneElementMiddle, int startIndex)
         {
             upperMuscle *= boneElementUpper.twistValue;     // roll back the bone by 1-twist value
-            var scale = upperMuscle >= 0 ? boneElementUpper.max.x : boneElementUpper.minAbs.x;
+            var scale = upperMuscle >= 0 ? boneElementUpper.max.x : boneElementUpper.min.x;
             var angleUpper = boneElementUpper.sign.x * scale * upperMuscle;
             var twistUpper = Quaternion.Euler(angleUpper, 0f, 0f);
             var rot = boneElementUpper.preQInv * rotations[startIndex] * boneElementUpper.postQ;
@@ -141,7 +124,7 @@ namespace Zettai
             rotations[startIndex] = rot;
 
             middleMuscle *= boneElementMiddle.twistValue;
-            var scaleMiddle = middleMuscle >= 0 ? boneElementMiddle.max.x : boneElementMiddle.minAbs.x;
+            var scaleMiddle = middleMuscle >= 0 ? boneElementMiddle.max.x : boneElementMiddle.min.x;
             var angleMiddle = boneElementMiddle.sign.x * scaleMiddle * middleMuscle;
             var twistMiddle = Quaternion.Euler(angleMiddle, 0f, 0f);
             rot = boneElementMiddle.preQInv * rotations[startIndex + 2] * boneElementMiddle.postQ;
@@ -151,10 +134,10 @@ namespace Zettai
             var rotMiddle = Quaternion.Euler(rotMiddleEuler);
             rotations[startIndex + 2] = rotMiddle;
 
-            var rotEndEuler = ((Quaternion)rotations[startIndex + 4]).eulerAngles;
+            var rotEndEuler = rotations[startIndex + 4].eulerAngles;
             rotEndEuler.y += angleMiddle;
-            var rotFoot = Quaternion.Euler(rotEndEuler);
-            rotations[startIndex + 4] = rotFoot;
+            var rotEnd = Quaternion.Euler(rotEndEuler);
+            rotations[startIndex + 4] = rotEnd;
 
             //would make more sense but no.
             //var rotHand = boneElementHand.preQ * Quaternion.Euler(angleMiddle, 0f, 0f) * boneElementHand.tPoseQ * boneElementHand.postQInv;

@@ -235,34 +235,37 @@ namespace Zettai
             netIkData.rootRotInterpolated = math.slerp(netIkData.rootRot2, netIkData.rootRot1, t);
             netIkData.hipsPosInterpolated = math.lerp(netIkData.hipsPos2, netIkData.hipsPos1, t);
             netIkData.rootPosInterpolated = math.lerp(netIkData.rootPos2, netIkData.rootPos1, t);
+
+            for (int i = 1; i < 24; i++)
+            {
+                if (netIkData.transformInfos[i].IsTransform)
+                    netIkData.transformInfos[i].initLocalRotation = math.slerp(netIkData.rotations2[i], netIkData.rotations1[i], t);
+            }
+            if (netIkData.transformInfos[54].IsTransform)
+                netIkData.transformInfos[54].initLocalRotation = math.slerp(netIkData.rotations2[54], netIkData.rotations1[54], t);
+
             if (netIkData.dataCurr.IndexUseIndividualFingers)
             {
-                bool setFingersOn = netIkData.fingers == true;
-                for (int i = 1; i < netIkData.transformInfos.Length; i++)
+                bool setFingersOn = !netIkData.fingers;
+                for (int i = 24; i < 54; i++)
                 {
-                    netIkData.transformInfos[i].initLocalRotation = math.slerp(netIkData.rotations2[i], netIkData.rotations1[i], t);
+                    if (netIkData.transformInfos[i].IsTransform)
+                        netIkData.transformInfos[i].initLocalRotation = math.slerp(netIkData.rotations2[i], netIkData.rotations1[i], t);
                     if (setFingersOn)
                         netIkData.transformInfos[i].IsEnabled = true;
                 }
-                netIkData.fingers = true;
+                if (setFingersOn)
+                    netIkData.fingers = true;
             }
-            else
+            else if (netIkData.fingers)
             {
-                bool setFingersOff = netIkData.fingers == true;
-                for (int i = 1; i < netIkData.transformInfos.Length; i++)
+                for (int i = 24; i < 54; i++)
                 {
-                    if (!FingerBones.Contains(i))
-                        netIkData.transformInfos[i].initLocalRotation = math.slerp(netIkData.rotations2[i], netIkData.rotations1[i], t);
-                    else if (setFingersOff)
-                        netIkData.transformInfos[i].IsEnabled = false;
+                    netIkData.transformInfos[i].IsEnabled = false;
                 }
                 netIkData.fingers = false;
             }
         }
-        private static readonly HashSet<int> FingerBones = new HashSet<int>(new int[]
-        { 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53 });
-    
-        
         internal static void SetMuscleValues(float[] muscles, PlayerAvatarMovementData data)
         {
             muscles[(int)MuscleNamesEnum.SpineFrontBack] = data.SpineFrontBack;
