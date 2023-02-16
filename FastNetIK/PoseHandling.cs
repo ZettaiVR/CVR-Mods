@@ -16,13 +16,13 @@ namespace Zettai
                 return Quaternion.identity;
             var id = boneElement.muscleIds;
             var rawMuscleValue = new float3(
-                dof.x ? muscles[id.x] * boneElement.twistValue : 0f, 
+                dof.x ? muscles[id.x] : 0f, 
                 dof.y ? muscles[id.y] : 0f,
                 dof.z ? muscles[id.z] : 0f);
             var scale = new float3(
-                dof.x ? (rawMuscleValue.x >= 0f ? boneElement.max.x : boneElement.minAbs.x) : 0f,
-                dof.y ? (rawMuscleValue.y >= 0f ? boneElement.max.y : boneElement.minAbs.y) : 0f,
-                dof.z ? (rawMuscleValue.z >= 0f ? boneElement.max.z : boneElement.minAbs.z) : 0f);
+                rawMuscleValue.x >= 0f ? boneElement.max.x : boneElement.minAbs.x,
+                rawMuscleValue.y >= 0f ? boneElement.max.y : boneElement.minAbs.y,
+                rawMuscleValue.z >= 0f ? boneElement.max.z : boneElement.minAbs.z);
             var _angle = boneElement.center + (boneElement.sign * scale * rawMuscleValue);  // boneElement.center is pure guess based on docs.
             var twist = Quaternion.Euler(_angle.x, 0f, 0f);                                 // I couldn't find a way to add an offset with the humanoid rig import.
             var rotY = Mathf.Tan(Deg2RadHalf * _angle.y);       // Mathf.Tan results the same values as HumanPoseHandler, math.tan or Math.Tan will differ slightly.
@@ -132,7 +132,7 @@ namespace Zettai
         private static void FixLimbs(quaternion[] rotations, float upperMuscle, float middleMuscle, BoneElement boneElementUpper,
             BoneElement boneElementMiddle, int startIndex)
         {
-            upperMuscle *= 1f - boneElementUpper.twistValue;
+            upperMuscle *= boneElementUpper.twistValue;     // roll back the bone by 1-twist value
             var scale = upperMuscle >= 0 ? boneElementUpper.max.x : boneElementUpper.minAbs.x;
             var angleUpper = boneElementUpper.sign.x * scale * upperMuscle;
             var twistUpper = Quaternion.Euler(angleUpper, 0f, 0f);
@@ -140,14 +140,14 @@ namespace Zettai
             rot = boneElementUpper.preQ * rot * Quaternion.Inverse(twistUpper) * boneElementUpper.postQInv;
             rotations[startIndex] = rot;
 
-            middleMuscle *= 1f - boneElementMiddle.twistValue;
+            middleMuscle *= boneElementMiddle.twistValue;
             var scaleMiddle = middleMuscle >= 0 ? boneElementMiddle.max.x : boneElementMiddle.minAbs.x;
             var angleMiddle = boneElementMiddle.sign.x * scaleMiddle * middleMuscle;
             var twistMiddle = Quaternion.Euler(angleMiddle, 0f, 0f);
             rot = boneElementMiddle.preQInv * rotations[startIndex + 2] * boneElementMiddle.postQ;
             rot = boneElementMiddle.preQ * rot * Quaternion.Inverse(twistMiddle) * boneElementMiddle.postQInv;
             var rotMiddleEuler = rot.eulerAngles;
-            rotMiddleEuler.y += angleUpper;
+            rotMiddleEuler.y += angleUpper;     // undo the rolling of the parent bone in the child bone 
             var rotMiddle = Quaternion.Euler(rotMiddleEuler);
             rotations[startIndex + 2] = rotMiddle;
 
