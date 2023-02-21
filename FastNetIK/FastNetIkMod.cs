@@ -11,14 +11,43 @@ namespace Zettai
     {
         private static MelonPreferences_Entry<bool> netIk;
         private static MelonPreferences_Entry<int> netIkThreads;
-        private static bool processingEnded = false;
+        private static MelonPreferences_Entry<float> netIkThumbsSplay;
+        private static MelonPreferences_Entry<float> netIkIndexSplay;
+        private static MelonPreferences_Entry<float> netIkMiddleSplay;
+        private static MelonPreferences_Entry<float> netIkRingSplay;
+        private static MelonPreferences_Entry<float> netIkLittleSplay;
         public override void OnApplicationStart()
         {
             var category = MelonPreferences.CreateCategory("Zettai");
             netIk = category.CreateEntry("FastNetIK", true, "Fast NetIK enable");
-            netIkThreads = category.CreateEntry("netIkThreads", 2, "NetIK thread count");
+            netIkThreads = category.CreateEntry("netIkThreads", 2, "NetIK thread count (1..8)");
+            netIkThreads.OnValueChanged += NetIkThreads_OnValueChanged;
+
+            netIkThumbsSplay = category.CreateEntry("netIkThumbsSplay", 0.3f, "Thumb spread (-1..1)");
+            netIkIndexSplay = category.CreateEntry("netIkIndexSplay", 0f, "Index finger spread (-1..1)");
+            netIkMiddleSplay = category.CreateEntry("netIkMiddleSplay", 0f, "Middle finger spread (-1..1)");
+            netIkRingSplay = category.CreateEntry("netIkRingSplay", 0f, "Ring finger spread (-1..1)");
+            netIkLittleSplay = category.CreateEntry("netIkLittleSplay", 0f, "Little finger spread (-1..1)");
+
+            netIkThumbsSplay.OnValueChanged += NetIkSplay_OnValueChanged;
+            netIkIndexSplay.OnValueChanged += NetIkSplay_OnValueChanged;
+            netIkMiddleSplay.OnValueChanged += NetIkSplay_OnValueChanged;
+            netIkRingSplay.OnValueChanged += NetIkSplay_OnValueChanged;
+            netIkLittleSplay.OnValueChanged += NetIkSplay_OnValueChanged;
             Setup.Init(netIkThreads.Value);
         }
+
+        private void NetIkSplay_OnValueChanged(float arg1, float arg2)
+        {
+            var thumb = netIkThumbsSplay.Value = Mathf.Clamp(netIkThumbsSplay.Value, -1f, 1f);
+            var index = netIkIndexSplay.Value = Mathf.Clamp(netIkIndexSplay.Value, -1f, 1f);
+            var middle = netIkMiddleSplay.Value = Mathf.Clamp(netIkMiddleSplay.Value, -1f, 1f);
+            var ring = netIkRingSplay.Value = Mathf.Clamp(netIkRingSplay.Value, -1f, 1f);
+            var little = netIkLittleSplay.Value = Mathf.Clamp(netIkLittleSplay.Value, -1f, 1f);
+            Update.UpdateFingerSpread(thumb, index, middle, ring, little);
+        }
+
+        private void NetIkThreads_OnValueChanged(int old, int value) => Setup.SetThreadCount(value);
         public override void OnApplicationQuit()
         {
             Update.AbortAllThreads();
@@ -30,9 +59,7 @@ namespace Zettai
             {
                 if (!netIk.Value)
                     return;
-
                 Update.StartProcessing();
-                processingEnded = false;
             }
         }
         [HarmonyPatch(typeof(PuppetMaster), nameof(PuppetMaster.AvatarInstantiated))]
@@ -41,7 +68,11 @@ namespace Zettai
             static void Postfix(PuppetMaster __instance)
             {
                 if (!string.IsNullOrEmpty(__instance._playerDescriptor.ownerId))
+                {
                     Setup.AddPlayer(__instance);
+                    __instance._playerAvatarMovementDataCurrent._applyPosePast = default(HumanPose);
+                    __instance._playerAvatarMovementDataPast._applyPosePast = default(HumanPose);
+                }
             }
         }
         [HarmonyPatch(typeof(PuppetMaster), nameof(PuppetMaster.AvatarDestroyed))]
@@ -52,14 +83,14 @@ namespace Zettai
                 Update.RemovePlayer(__instance);
             }
         }
-        [HarmonyPatch(typeof(PlayerSetup), nameof(PlayerSetup.LateUpdate))]
-        class PlayerSetupLateUpdate
+        [HarmonyPatch(typeof(DbJobsColliderUpdate), nameof(DbJobsColliderUpdate.LateUpdate))]
+        class DbJobsColliderLateUpdate
         {
             static void Prefix()
             {
                 if (!netIk.Value)
                     return;
-
+                Update.EndProcessing();
                 Update.StartJobs();
             }
         }
@@ -72,29 +103,7 @@ namespace Zettai
                     return true;
                 if (animator == null || animator.avatar == null || !animator.avatar.isHuman)
                     return false;
-                if (!processingEnded)
-                {
-                    Update.EndProcessing();
-                    processingEnded = true;
-                }
-
-
-                NetIkData netIkData = null;
-                if (Setup.GetPlayer(animator, ref netIkData))
-                {
-                    var hipsRotInterpolated = netIkData.hipsRotInterpolated;
-                    if (isBlocked && !isBlockedAlt)
-                    {
-                        var rot = hipsRotInterpolated.eulerAngles;
-                        rot -= __instance.RelativeHipRotation - relativeHipRotation;
-                        hipsRotInterpolated = Quaternion.Euler(rot);
-                    }
-                    // order important!
-                    netIkData.root.SetPositionAndRotation(netIkData.rootPosInterpolated, netIkData.rootRotInterpolated);
-                    netIkData.hips.SetPositionAndRotation(netIkData.hipsPosInterpolated, hipsRotInterpolated);
-                    return false;
-                }
-                return true;
+                return false;
             }
         }
     }

@@ -40,62 +40,86 @@ namespace Zettai
             var avatar = animator.avatar;
             var hd = avatar.humanDescription;
             var human = hd.human;
-            for (int i = 0; i < human.Length; i++)
+
+            if (human.Length != 0)
             {
-                var humanBone = human[i];
-                if (boneNames == null)
-                    boneNames = HumanTrait.BoneName.ToList();
-                int index = boneNames.FindIndex(a => string.Equals(a, humanBone.humanName));
-                if (index < 0 || index == (int)HumanBodyBones.Hips)
-                    continue;
-                var boneData = boneElements[index];
-                boneData.dofExists.w = true;
-                boneData.humanBodyBoneId = (HumanBodyBones)index;
-                boneData.sign = GetLimitSign(avatar, (HumanBodyBones)index);
-                boneData.preQ = GetPreRotation(avatar, (HumanBodyBones)index);
-                boneData.postQ = GetPostRotation(avatar, (HumanBodyBones)index);
-                boneData.preQInv = Quaternion.Inverse(boneData.preQ);
-                boneData.postQInv = Quaternion.Inverse(boneData.postQ);
-        //      boneData.transform = animator.GetBoneTransform((HumanBodyBones)index);
-                var limit = humanBone.limit;
-                int x = HumanTrait.MuscleFromBone(index, 0);
-                int y = HumanTrait.MuscleFromBone(index, 1);
-                int z = HumanTrait.MuscleFromBone(index, 2);
-                boneData.dofExists.x = x >= 0;
-                boneData.dofExists.y = y >= 0;
-                boneData.dofExists.z = z >= 0;
-                boneData.muscleIds.x = x;
-                boneData.muscleIds.y = y;
-                boneData.muscleIds.z = z;
-                if (!limit.useDefaultValues)
+                for (int i = 0; i < human.Length; i++)
                 {
-                    boneData.min = math.abs(limit.min);
-                    boneData.max = limit.max;
-                    boneData.center = limit.center;
+                    var humanBone = human[i];
+                    int index = boneNames.FindIndex(a => string.Equals(a, humanBone.humanName));
+                    if (index < 0 || index == (int)HumanBodyBones.Hips)
+                        continue;
+                    AddBone(boneElements, transformInfos, avatar, humanBone.limit, index, true);
                 }
-                else
-                {
-                    boneData.min.x = math.abs(HumanTrait.GetMuscleDefaultMin(x));
-                    boneData.min.y = math.abs(HumanTrait.GetMuscleDefaultMin(y));
-                    boneData.min.z = math.abs(HumanTrait.GetMuscleDefaultMin(z));
-                    boneData.max.x = HumanTrait.GetMuscleDefaultMax(x);
-                    boneData.max.y = HumanTrait.GetMuscleDefaultMax(y);
-                    boneData.max.z = HumanTrait.GetMuscleDefaultMax(z);
-                    boneData.center = float3.zero;
-                }
-                transformInfos[index] = new TransformInfoInit
-                {
-                    HasMultipleChildren = false,
-                    IsRoot = true,
-                    IsEnabled = true,
-                    IsReadOnly = false,
-                    IsTransform = true
-                };
-                boneElements[index] = boneData;
             }
+            else
+            {
+                // older versions of Unity didn't generate this data
+                var defaultLimit = new HumanLimit { useDefaultValues = true };
+                for (int i = 1; i < boneNames.Count; i++)
+                {
+                    // make sure the animator is active and enabled if using Unity 2021.2 or 2021.3
+                    var exists = (bool)animator.GetBoneTransform((HumanBodyBones)i);
+                    AddBone(boneElements, transformInfos, avatar, defaultLimit, i, exists);
+                }
+            }
+            var z = math.abs(boneElements[3].preQ.eulerAngles.z);
+            boneElements[3].middleMultiplier = z < 90f || z > 270f ? -1f : 1f;  // dirty hack
+            z = math.abs(boneElements[4].preQ.eulerAngles.z);
+            boneElements[4].middleMultiplier = z < 90f || z > 270f ? -1f : 1f;
+
+
             GetTwists(boneElements, hd);
         }
-
+        private static void AddBone(BoneElement[] boneElements, IList<TransformInfoInit> transformInfos, Avatar avatar, HumanLimit humanLimit, int index, bool exists)
+        {
+            var boneData = boneElements[index];
+            boneData.dofExists.w = exists;
+            if (!exists)
+                return;
+            boneData.middleMultiplier = 1f;
+            boneData.humanBodyBoneId = (HumanBodyBones)index;
+            boneData.sign = GetLimitSign(avatar, (HumanBodyBones)index);
+            boneData.preQ = GetPreRotation(avatar, (HumanBodyBones)index);
+            boneData.postQ = GetPostRotation(avatar, (HumanBodyBones)index);
+            boneData.preQInv = Quaternion.Inverse(boneData.preQ);
+            boneData.postQInv = Quaternion.Inverse(boneData.postQ);
+            //      boneData.transform = animator.GetBoneTransform((HumanBodyBones)index);
+            int x = HumanTrait.MuscleFromBone(index, 0);
+            int y = HumanTrait.MuscleFromBone(index, 1);
+            int z = HumanTrait.MuscleFromBone(index, 2);
+            boneData.dofExists.x = x >= 0;
+            boneData.dofExists.y = y >= 0;
+            boneData.dofExists.z = z >= 0;
+            boneData.muscleIds.x = x;
+            boneData.muscleIds.y = y;
+            boneData.muscleIds.z = z;
+            if (!humanLimit.useDefaultValues)
+            {
+                boneData.min = math.abs(humanLimit.min);
+                boneData.max = humanLimit.max;
+                boneData.center = humanLimit.center;
+            }
+            else
+            {
+                boneData.min.x = math.abs(HumanTrait.GetMuscleDefaultMin(x));
+                boneData.min.y = math.abs(HumanTrait.GetMuscleDefaultMin(y));
+                boneData.min.z = math.abs(HumanTrait.GetMuscleDefaultMin(z));
+                boneData.max.x = HumanTrait.GetMuscleDefaultMax(x);
+                boneData.max.y = HumanTrait.GetMuscleDefaultMax(y);
+                boneData.max.z = HumanTrait.GetMuscleDefaultMax(z);
+                boneData.center = float3.zero;
+            }
+            transformInfos[index] = new TransformInfoInit
+            {
+                HasMultipleChildren = false,
+                IsRoot = true,
+                IsEnabled = true,
+                IsReadOnly = false,
+                IsTransform = true
+            };
+            boneElements[index] = boneData;
+        }
         public static void FixBoneTwist(Quaternion[] rotations, BoneElement[] boneElements, float[] muscles)
         {
             FixLimbChain(rotations, boneElements, muscles, (int)HumanBodyBones.LeftUpperArm, (int)MuscleNamesEnum.LeftArmTwistInOut);
@@ -130,7 +154,7 @@ namespace Zettai
             rot = boneElementMiddle.preQInv * rotations[startIndex + 2] * boneElementMiddle.postQ;
             rot = boneElementMiddle.preQ * rot * Quaternion.Inverse(twistMiddle) * boneElementMiddle.postQInv;
             var rotMiddleEuler = rot.eulerAngles;
-            rotMiddleEuler.y += angleUpper;     // undo the rolling of the parent bone in the child bone 
+            rotMiddleEuler.y += angleUpper * boneElementMiddle.middleMultiplier;     // undo the rolling of the parent bone in the child bone 
             var rotMiddle = Quaternion.Euler(rotMiddleEuler);
             rotations[startIndex + 2] = rotMiddle;
 

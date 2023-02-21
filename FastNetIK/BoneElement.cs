@@ -6,6 +6,7 @@ namespace Zettai
     public struct BoneElement
     {
         public float twistValue;
+        public float middleMultiplier;
         public bool4 dofExists;
         public int3 muscleIds;
         public float3 min;
@@ -17,6 +18,5 @@ namespace Zettai
         public Quaternion postQ;
         public Quaternion postQInv;
         public HumanBodyBones humanBodyBoneId;
-    //    public Transform transform;
     }
 }

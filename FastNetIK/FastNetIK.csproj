@@ -38,6 +38,9 @@
     <Reference Include="Assembly-CSharp-public">
       <HintPath>C:\Program Files (x86)\Steam\steamapps\common\ChilloutVR\ChilloutVR_Data\Managed\Assembly-CSharp-public.dll</HintPath>
     </Reference>
+    <Reference Include="MagicaCloth-public">
+      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\ChilloutVR\ChilloutVR_Data\Managed\MagicaCloth-public.dll</HintPath>
+    </Reference>
     <Reference Include="MelonLoader">
       <HintPath>C:\Program Files (x86)\Steam\steamapps\common\ChilloutVR\MelonLoader\MelonLoader.dll</HintPath>
     </Reference>
