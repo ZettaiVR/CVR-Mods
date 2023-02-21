@@ -133,41 +133,36 @@ namespace Zettai
             var upperMuscle = muscles[startMuscle];
             var boneElementMiddle = boneElements[startIndex + 2];
             var middleMuscle = muscles[startMuscle + 2];
-            FixLimbs(rotations, upperMuscle, middleMuscle, boneElementUpper, boneElementMiddle, startIndex);
+            var boneElementEnd = boneElements[startIndex + 4];
+            FixLimbs(rotations, upperMuscle, middleMuscle, boneElementUpper, boneElementMiddle, boneElementEnd, startIndex);
         }
 
-        private static void FixLimbs(Quaternion[] rotations, float upperMuscle, float middleMuscle, BoneElement boneElementUpper,
-            BoneElement boneElementMiddle, int startIndex)
+        static void FixLimbs(Quaternion[] rotations, float upperMuscle, float middleMuscle, BoneElement boneElementUpper,
+             BoneElement boneElementMiddle, BoneElement boneElementEnd, int startIndex)
         {
-            upperMuscle *= boneElementUpper.twistValue;     // roll back the bone by 1-twist value
+            var originalRotUpper = boneElementUpper.preQInv * rotations[startIndex] * boneElementUpper.postQ;
+            var originalRotMiddle = boneElementMiddle.preQInv * rotations[startIndex + 2] * boneElementMiddle.postQ;
+            var originalRotEnd = boneElementEnd.preQInv * rotations[startIndex + 4] * boneElementEnd.postQ;
+
+            upperMuscle *= boneElementUpper.twistValue;
             var scale = upperMuscle >= 0 ? boneElementUpper.max.x : boneElementUpper.min.x;
-            var angleUpper = boneElementUpper.sign.x * scale * upperMuscle;
-            var twistUpper = Quaternion.Euler(angleUpper, 0f, 0f);
-            var rot = boneElementUpper.preQInv * rotations[startIndex] * boneElementUpper.postQ;
-            rot = boneElementUpper.preQ * rot * Quaternion.Inverse(twistUpper) * boneElementUpper.postQInv;
-            rotations[startIndex] = rot;
+            var angleUpper = scale * upperMuscle * boneElementUpper.sign.x;
+            var twistUpper = Quaternion.Euler(-angleUpper, 0f, 0f);
+            var newRotUpper = boneElementUpper.preQ * originalRotUpper * twistUpper * boneElementUpper.postQInv;
 
             middleMuscle *= boneElementMiddle.twistValue;
             var scaleMiddle = middleMuscle >= 0 ? boneElementMiddle.max.x : boneElementMiddle.min.x;
             var angleMiddle = boneElementMiddle.sign.x * scaleMiddle * middleMuscle;
-            var twistMiddle = Quaternion.Euler(angleMiddle, 0f, 0f);
-            rot = boneElementMiddle.preQInv * rotations[startIndex + 2] * boneElementMiddle.postQ;
-            rot = boneElementMiddle.preQ * rot * Quaternion.Inverse(twistMiddle) * boneElementMiddle.postQInv;
-            var rotMiddleEuler = rot.eulerAngles;
-            rotMiddleEuler.y += angleUpper * boneElementMiddle.middleMultiplier;     // undo the rolling of the parent bone in the child bone 
-            var rotMiddle = Quaternion.Euler(rotMiddleEuler);
-            rotations[startIndex + 2] = rotMiddle;
+            var twistMiddle = Quaternion.Euler(-angleMiddle, 0f, 0f);
+            var newRotMiddle = Quaternion.Euler(0f, angleUpper * boneElementMiddle.middleMultiplier, 0f) * boneElementMiddle.preQ * originalRotMiddle * twistMiddle * boneElementMiddle.postQInv;
 
-            var rotEndEuler = rotations[startIndex + 4].eulerAngles;
-            rotEndEuler.y += angleMiddle;
-            var rotEnd = Quaternion.Euler(rotEndEuler);
-            rotations[startIndex + 4] = rotEnd;
+            var newRotEnd = Quaternion.Euler(0f, angleMiddle, 0f) * boneElementEnd.preQ * originalRotEnd * boneElementEnd.postQInv;
 
-            //would make more sense but no.
-            //var rotHand = boneElementHand.preQ * Quaternion.Euler(angleMiddle, 0f, 0f) * boneElementHand.tPoseQ * boneElementHand.postQInv;
-            //rotations[startIndex + 4] = rotHand;
+            rotations[startIndex] = newRotUpper;
+            rotations[startIndex + 2] = newRotMiddle;
+            rotations[startIndex + 4] = newRotEnd;
         }
-      
+
         private static void GetTwists(BoneElement[] boneElements, HumanDescription hd)
         {
             boneElements[1].twistValue  = boneElements[2].twistValue  = 1f - hd.upperLegTwist;
