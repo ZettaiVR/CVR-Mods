@@ -6,7 +6,6 @@ namespace Zettai
     public struct BoneElement
     {
         public float twistValue;
-        public float middleMultiplier;
         public bool4 dofExists;
         public int3 muscleIds;
         public float3 min;

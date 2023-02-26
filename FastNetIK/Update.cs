@@ -27,6 +27,7 @@ namespace Zettai
         private static float PinkySplay = 0f;
         
         private static float time = 0f;
+        internal static volatile bool Test = false;
         internal static volatile bool AbortThreads = false;
         internal static int threadCount = 2;
         private static int playerCount = 0;
@@ -360,9 +361,7 @@ namespace Zettai
                     netIkData.rootPos2 = netIkData.dataPrev.RootPosition;
                     SetMuscleValues(muscles, netIkData.dataPrev);
                     for (int i = 0; i < netIkData.rotations2.Length; i++)
-                    {
                         netIkData.rotations2[i] = PoseHandling.GetBoneRotation(netIkData.boneElements[i], muscles);
-                    }
                     PoseHandling.FixBoneTwist(netIkData.rotations2, netIkData.boneElements, muscles);
                 }
                 netIkData.updateCurr = puppetMaster._lastUpdate;
@@ -376,25 +375,23 @@ namespace Zettai
                 netIkData.rootPos1 = netIkData.dataCurr.RootPosition;
                 SetMuscleValues(muscles, netIkData.dataCurr);
                 for (int i = 0; i < netIkData.rotations1.Length; i++)
-                {
                     netIkData.rotations1[i] = PoseHandling.GetBoneRotation(netIkData.boneElements[i], muscles);
-                }
                 PoseHandling.FixBoneTwist(netIkData.rotations1, netIkData.boneElements, muscles);
             }
             // interpolate rotations
-            var t = math.min((time - puppetMaster._lastUpdate) / puppetMaster.UpdateIntervalCalculated, 1f); // progress
-            netIkData.hipsRotInterpolated = math.slerp(netIkData.hipsRot2, netIkData.hipsRot1, t);
-            netIkData.rootRotInterpolated = math.slerp(netIkData.rootRot2, netIkData.rootRot1, t);
-            netIkData.hipsPosInterpolated = math.lerp(netIkData.hipsPos2, netIkData.hipsPos1, t);
-            netIkData.rootPosInterpolated = math.lerp(netIkData.rootPos2, netIkData.rootPos1, t);
+            var t = Mathf.Min((time - puppetMaster._lastUpdate) / puppetMaster.UpdateIntervalCalculated, 1f); // progress
+            netIkData.hipsRotInterpolated = Quaternion.Slerp(netIkData.hipsRot2, netIkData.hipsRot1, t);
+            netIkData.rootRotInterpolated = Quaternion.Slerp(netIkData.rootRot2, netIkData.rootRot1, t);
+            netIkData.hipsPosInterpolated = Vector3.Lerp(netIkData.hipsPos2, netIkData.hipsPos1, t);
+            netIkData.rootPosInterpolated = Vector3.Lerp(netIkData.rootPos2, netIkData.rootPos1, t);
 
             for (int i = 1; i < 24; i++)
             {
                 if (netIkData.transformInfos[i].IsTransform)
-                    netIkData.transformInfos[i].initLocalRotation = math.slerp(netIkData.rotations2[i], netIkData.rotations1[i], t);
+                    netIkData.transformInfos[i].initLocalRotation = Quaternion.Slerp(netIkData.rotations2[i], netIkData.rotations1[i], t);
             }
             if (netIkData.transformInfos[54].IsTransform)
-                netIkData.transformInfos[54].initLocalRotation = math.slerp(netIkData.rotations2[54], netIkData.rotations1[54], t);
+                netIkData.transformInfos[54].initLocalRotation = Quaternion.Slerp(netIkData.rotations2[54], netIkData.rotations1[54], t);
 
             if (netIkData.dataCurr.IndexUseIndividualFingers)
             {
@@ -402,7 +399,7 @@ namespace Zettai
                 for (int i = 24; i < 54; i++)
                 {
                     if (netIkData.transformInfos[i].IsTransform)
-                        netIkData.transformInfos[i].initLocalRotation = math.slerp(netIkData.rotations2[i], netIkData.rotations1[i], t);
+                        netIkData.transformInfos[i].initLocalRotation = Quaternion.Slerp(netIkData.rotations2[i], netIkData.rotations1[i], t);
                     if (setFingersOn)
                         netIkData.transformInfos[i].IsEnabled = true;
                 }

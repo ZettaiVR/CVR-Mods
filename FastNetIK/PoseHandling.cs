@@ -15,22 +15,24 @@ namespace Zettai
             if (!dof.w)
                 return Quaternion.identity;
             var id = boneElement.muscleIds;
-            var rawMuscleValue = new float3(
+            var rawMuscleValue = new Vector3(
                 dof.x ? muscles[id.x] : 0f, 
                 dof.y ? muscles[id.y] : 0f,
                 dof.z ? muscles[id.z] : 0f);
-            var scale = new float3(
+            var scale = new Vector3(
                 rawMuscleValue.x >= 0f ? boneElement.max.x : boneElement.min.x,
                 rawMuscleValue.y >= 0f ? boneElement.max.y : boneElement.min.y,
                 rawMuscleValue.z >= 0f ? boneElement.max.z : boneElement.min.z);
             var _angle = boneElement.center + (boneElement.sign * scale * rawMuscleValue);  // boneElement.center is pure guess based on docs.
             var twist = Quaternion.Euler(_angle.x, 0f, 0f);                                 // I couldn't find a way to add an offset with the humanoid rig import.
-            var rotY = Mathf.Tan(Deg2RadHalf * _angle.y);       // Mathf.Tan results the same values as HumanPoseHandler, math.tan or Math.Tan will differ slightly.
-            var rotZ = Mathf.Tan(Deg2RadHalf * _angle.z);       // Don't worry, you can use Mathf in Burst jobs just fine.
-            var tPoseQ = new Quaternion(0f, rotY, rotZ, 1f);    // Thanks to knah for figuring this out.
-            tPoseQ.Normalize();
-            tPoseQ *= twist;
-            var result = boneElement.preQ * tPoseQ * boneElement.postQInv;
+            var YZrot = Quaternion.Euler(0f, _angle.y, _angle.z);   // Thanks to knah for figuring this out.
+            //var rotY = Mathf.Tan(Deg2RadHalf * _angle.y);         // Mathf.Tan results the same values as HumanPoseHandler, math.tan or Math.Tan will differ slightly.
+            //var rotZ = Mathf.Tan(Deg2RadHalf * _angle.z);
+            //var YZrot = new Quaternion(0f, rotY, rotZ, 1f);       // I don't know why this works
+            YZrot.x = 0f;
+            YZrot.Normalize();
+            YZrot *= twist;
+            var result = boneElement.preQ * YZrot * boneElement.postQInv;
             return result;
         }
         public static void CalibrateMuscles(Animator animator, BoneElement[] boneElements, IList<TransformInfoInit> transformInfos)
@@ -40,8 +42,9 @@ namespace Zettai
             var avatar = animator.avatar;
             var hd = avatar.humanDescription;
             var human = hd.human;
-
-            if (human.Length != 0)
+            if (boneNames == null)
+                boneNames = HumanTrait.BoneName.ToList();
+            if (human != null && human.Length != 0)
             {
                 for (int i = 0; i < human.Length; i++)
                 {
@@ -63,12 +66,6 @@ namespace Zettai
                     AddBone(boneElements, transformInfos, avatar, defaultLimit, i, exists);
                 }
             }
-            var z = math.abs(boneElements[3].preQ.eulerAngles.z);
-            boneElements[3].middleMultiplier = z < 90f || z > 270f ? -1f : 1f;  // dirty hack
-            z = math.abs(boneElements[4].preQ.eulerAngles.z);
-            boneElements[4].middleMultiplier = z < 90f || z > 270f ? -1f : 1f;
-
-
             GetTwists(boneElements, hd);
         }
         private static void AddBone(BoneElement[] boneElements, IList<TransformInfoInit> transformInfos, Avatar avatar, HumanLimit humanLimit, int index, bool exists)
@@ -77,7 +74,6 @@ namespace Zettai
             boneData.dofExists.w = exists;
             if (!exists)
                 return;
-            boneData.middleMultiplier = 1f;
             boneData.humanBodyBoneId = (HumanBodyBones)index;
             boneData.sign = GetLimitSign(avatar, (HumanBodyBones)index);
             boneData.preQ = GetPreRotation(avatar, (HumanBodyBones)index);
@@ -120,25 +116,26 @@ namespace Zettai
             };
             boneElements[index] = boneData;
         }
+        private static readonly Quaternion lowerLegQ = Quaternion.Euler(270, 0, 0);  // Magic numbers derived from a few sample avatars with 0 bone rolls.
+        private static readonly Quaternion lowerArmQ = Quaternion.Euler(340, 0, 10);
         public static void FixBoneTwist(Quaternion[] rotations, BoneElement[] boneElements, float[] muscles)
         {
-            FixLimbChain(rotations, boneElements, muscles, (int)HumanBodyBones.LeftUpperArm, (int)MuscleNamesEnum.LeftArmTwistInOut);
-            FixLimbChain(rotations, boneElements, muscles, (int)HumanBodyBones.RightUpperArm, (int)MuscleNamesEnum.RightArmTwistInOut);
-            FixLimbChain(rotations, boneElements, muscles, (int)HumanBodyBones.LeftUpperLeg, (int)MuscleNamesEnum.LeftUpperLegTwistInOut);
-            FixLimbChain(rotations, boneElements, muscles, (int)HumanBodyBones.RightUpperLeg, (int)MuscleNamesEnum.RightUpperLegTwistInOut);
+            FixLimbChain(rotations, boneElements, muscles, lowerArmQ, (int)HumanBodyBones.LeftUpperArm, (int)MuscleNamesEnum.LeftArmTwistInOut);
+            FixLimbChain(rotations, boneElements, muscles, lowerArmQ, (int)HumanBodyBones.RightUpperArm, (int)MuscleNamesEnum.RightArmTwistInOut);
+            FixLimbChain(rotations, boneElements, muscles, lowerLegQ, (int)HumanBodyBones.LeftUpperLeg, (int)MuscleNamesEnum.LeftUpperLegTwistInOut);
+            FixLimbChain(rotations, boneElements, muscles, lowerLegQ, (int)HumanBodyBones.RightUpperLeg, (int)MuscleNamesEnum.RightUpperLegTwistInOut);
         }
-        private static void FixLimbChain(Quaternion[] rotations, BoneElement[] boneElements, float[] muscles, int startIndex, int startMuscle) 
+        private static void FixLimbChain(Quaternion[] rotations, BoneElement[] boneElements, float[] muscles, Quaternion lowerQ, int startIndex, int startMuscle) 
         {
             var boneElementUpper = boneElements[startIndex];
             var upperMuscle = muscles[startMuscle];
             var boneElementMiddle = boneElements[startIndex + 2];
             var middleMuscle = muscles[startMuscle + 2];
             var boneElementEnd = boneElements[startIndex + 4];
-            FixLimbs(rotations, upperMuscle, middleMuscle, boneElementUpper, boneElementMiddle, boneElementEnd, startIndex);
+            FixLimbs(rotations, upperMuscle, middleMuscle, boneElementUpper, boneElementMiddle, boneElementEnd, lowerQ, startIndex);
         }
-
         static void FixLimbs(Quaternion[] rotations, float upperMuscle, float middleMuscle, BoneElement boneElementUpper,
-             BoneElement boneElementMiddle, BoneElement boneElementEnd, int startIndex)
+             BoneElement boneElementMiddle, BoneElement boneElementEnd, Quaternion lowerQ, int startIndex)
         {
             var originalRotUpper = boneElementUpper.preQInv * rotations[startIndex] * boneElementUpper.postQ;
             var originalRotMiddle = boneElementMiddle.preQInv * rotations[startIndex + 2] * boneElementMiddle.postQ;
@@ -153,8 +150,10 @@ namespace Zettai
             middleMuscle *= boneElementMiddle.twistValue;
             var scaleMiddle = middleMuscle >= 0 ? boneElementMiddle.max.x : boneElementMiddle.min.x;
             var angleMiddle = boneElementMiddle.sign.x * scaleMiddle * middleMuscle;
-            var twistMiddle = Quaternion.Euler(-angleMiddle, 0f, 0f);
-            var newRotMiddle = Quaternion.Euler(0f, angleUpper * boneElementMiddle.middleMultiplier, 0f) * boneElementMiddle.preQ * originalRotMiddle * twistMiddle * boneElementMiddle.postQInv;
+            var twistMiddle = Quaternion.Euler(-angleMiddle, 0f, 0f); 
+            var correction = (boneElementMiddle.preQ * boneElementMiddle.postQInv * lowerQ).eulerAngles.y;
+            var signFlip = correction < 90f || correction > 270f ? 1f : -1f;
+            var newRotMiddle = Quaternion.Euler(0f, angleUpper * signFlip, 0f) * boneElementMiddle.preQ * originalRotMiddle * twistMiddle * boneElementMiddle.postQInv;
 
             var newRotEnd = Quaternion.Euler(0f, angleMiddle, 0f) * boneElementEnd.preQ * originalRotEnd * boneElementEnd.postQInv;
 
@@ -162,7 +161,7 @@ namespace Zettai
             rotations[startIndex + 2] = newRotMiddle;
             rotations[startIndex + 4] = newRotEnd;
         }
-
+        
         private static void GetTwists(BoneElement[] boneElements, HumanDescription hd)
         {
             boneElements[1].twistValue  = boneElements[2].twistValue  = 1f - hd.upperLegTwist;
