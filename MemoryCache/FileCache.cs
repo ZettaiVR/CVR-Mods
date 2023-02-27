@@ -26,6 +26,7 @@ namespace Zettai
         private static readonly HashSet<FileInfo> FilesToDelete = new HashSet<FileInfo>();
         private static readonly List<Thread> threads = new List<Thread>();
         private static volatile bool AbortThreads = false;
+        private static bool InitDirectoryNamesDone = false;
         const int sleepTime = 1;
 
         internal static void SetMaxDownloadCount(int value) => downloadCountMax = value;
@@ -404,22 +405,14 @@ namespace Zettai
             ExistsDifferentVersion,
             NotExists
         }
-        internal static IEnumerator Init(int downloadThreads = 5, int verifyThreads = 5)
+        internal static void InitDirectoryNames()
         {
-            downloadCountMax = downloadThreads;
-            var threadCount = Environment.ProcessorCount > 10 ? 2 : 1;
-            StartNewThreads("File write", WriteToDiskThread);
-            StartNewThreads("Hash", HashByteArrayThread, threadCount);
-            StartNewThreads("File read", ReadFromDiskThread, threadCount);
-            StartNewThreads("Decrypt", DecryptThread);
-            StartNewThreads("Verify", VerifyThread, verifyThreads);
-            StartNewThreads("Download", DownloadThread, downloadThreads);
-            downloadCounter.Release(downloadThreads);
+            if (InitDirectoryNamesDone || 
+                string.IsNullOrEmpty(ABI_RC.Core.Savior.MetaPort.Instance?.APPLICATION_DATAPATH) ||
+                !Directory.Exists(ABI_RC.Core.Savior.MetaPort.Instance.APPLICATION_DATAPATH))
+                return;
 
-            while (string.IsNullOrEmpty(ABI_RC.Core.Savior.MetaPort.Instance?.APPLICATION_DATAPATH) || !Directory.Exists(ABI_RC.Core.Savior.MetaPort.Instance?.APPLICATION_DATAPATH))
-                yield return null;
-
-            var dataPath = ABI_RC.Core.Savior.MetaPort.Instance?.APPLICATION_DATAPATH;
+            var dataPath = ABI_RC.Core.Savior.MetaPort.Instance.APPLICATION_DATAPATH;
             var AvatarsDir = dataPath + "/Avatars";
             var WorldsDir = dataPath + "/Worlds";
             var PropsDir = dataPath + "/Spawnables";
@@ -432,6 +425,20 @@ namespace Zettai
             names[AssetType.Scene] = (WorldsDir, "cvrworld", Worlds);
             names[AssetType.Prop] = (PropsDir, "cvrprop", Props);
 
+            InitDirectoryNamesDone = true;
+        }
+        internal static void Init(int downloadThreads = 5, int verifyThreads = 5)
+        {
+            downloadCountMax = downloadThreads;
+            var threadCount = Environment.ProcessorCount > 10 ? 2 : 1;
+            StartNewThreads("File write", WriteToDiskThread);
+            StartNewThreads("Hash", HashByteArrayThread, threadCount);
+            StartNewThreads("File read", ReadFromDiskThread, threadCount);
+            StartNewThreads("Decrypt", DecryptThread);
+            StartNewThreads("Verify", VerifyThread, verifyThreads);
+            StartNewThreads("Download", DownloadThread, downloadThreads);
+            downloadCounter.Release(downloadThreads);
+            
             for (int i = 0; i < 100; i++)
             {
                 PercentageText[i] = $"Downloading {i} %";
@@ -454,6 +461,7 @@ namespace Zettai
             StatusText[DownloadData.Status.Done] = "Done";
             StatusText[DownloadData.Status.Error] = "Error";
             InitDone = true;
+            InitDirectoryNames();
         }
     }
 }

@@ -65,7 +65,7 @@ namespace Zettai
             downloadThreads = category.CreateEntry("downloadThreads", (byte)5, "Download threads");
             verifyThreads = category.CreateEntry("verifyThreads", (byte)5, "Bundle Verifier threads");
             downloadSemaphore.Release(downloadThreads.Value);
-            MelonCoroutines.Start(FileCache.Init(downloadThreads.Value, verifyThreads.Value));
+            FileCache.Init(downloadThreads.Value, verifyThreads.Value);
             enableGC = category.CreateEntry("enableGC", false, "Enable GC");
             enableOwnSanitizer = category.CreateEntry("enableOwnSanitizer", false, "Enable MemoryCache sanitizer");
             enableDownloader = category.CreateEntry("enableDownloader", false, "Enable MemoryCache downloader");
@@ -304,6 +304,7 @@ namespace Zettai
             playerIdToAsset.Clear();
             try
             {
+                FileCache.InitDirectoryNames();
                 cachedAssets.Remove(BlockedKey);
                 cachedAssets[BlockedKey] = new CacheItem(_BLOCKED_NAME, _BLOCKED_VERSION, AssetType.Avatar, MetaPort.Instance?.blockedAvatarPrefab, new Tags(), _BLOCKED_NAME, true);
             }
