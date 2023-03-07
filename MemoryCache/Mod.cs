@@ -101,6 +101,144 @@ namespace Zettai
         {
             static bool Prefix() => !enableDownloader.Value;
         }
+        [HarmonyPatch(typeof(CVRPlayerManager))]
+        class ReloadAvatarPatch
+        {
+            [HarmonyPrefix]
+            [HarmonyPatch(nameof(CVRPlayerManager.ReloadAvatar))]
+            public static bool ReloadAvatarPrefix(string avatarId)
+            {
+                if (string.IsNullOrEmpty(avatarId) ||
+                    (PlayerSetup.Instance._avatarDescriptor && string.Equals(avatarId, MetaPort.Instance.currentAvatarGuid, StringComparison.OrdinalIgnoreCase)))
+                    return true;
+                if (!enableMod.Value && cachedAssets.Count == 0)
+                    return true;
+                var networkPlayers = CVRPlayerManager.Instance.NetworkPlayers;
+                try
+                {
+                    ReloadPlayersWithAvatar(avatarId, null, networkPlayers);
+                }
+                catch (Exception e) 
+                {
+                    MelonLogger.Error($"Error reloading players with avatar ID '{avatarId}'.", e);
+                }
+                return false;
+            }
+            [HarmonyPrefix]
+            [HarmonyPatch(nameof(CVRPlayerManager.ReloadAllAvatars))]
+            public static bool ReloadAllAvatarsPrefix()
+            {
+                if (!enableMod.Value && cachedAssets.Count == 0)
+                    return true;
+                var networkPlayers = CVRPlayerManager.Instance.NetworkPlayers;
+                try
+                {
+                    ReloadPlayersWithAvatar(null, null, networkPlayers);
+                }
+                catch (Exception e)
+                {
+                    MelonLogger.Error("Error reloading all players.", e);
+                }
+                return false;
+            }
+            [HarmonyPrefix]
+            [HarmonyPatch(nameof(CVRPlayerManager.ReloadPlayersAvatar))]
+            public static bool ReloadPlayersAvatarPrefix(string userId)
+            {
+                if (!enableMod.Value && cachedAssets.Count == 0)
+                    return true;
+
+                var networkPlayers = CVRPlayerManager.Instance.NetworkPlayers;
+                try
+                {
+                    ReloadPlayersWithAvatar(null, userId, networkPlayers);
+                }
+                catch (Exception e)
+                {
+                    MelonLogger.Error("Error reloading local player.", e);
+                }
+                return false;
+            }
+            private static void ReloadPlayersWithAvatar(string avatarId, string userId, List<CVRPlayerEntity> networkPlayers)
+            {
+                bool hasAvatarId = !string.IsNullOrEmpty(avatarId);
+                bool hasUserId = !string.IsNullOrEmpty(userId);
+                foreach (var player in networkPlayers)
+                {
+                    if (string.IsNullOrEmpty(player?.Uuid))
+                        continue;
+                    if (hasAvatarId && !string.Equals(player?.AvatarId, avatarId))
+                        continue; 
+                    if (hasUserId && !string.Equals(player?.Uuid, userId))
+                        continue;
+                    var pm = player.PuppetMaster;
+                    if (pm._avatar == null)
+                        continue;
+
+                    MTJobSystem.MTJobManager.AbortCollection(player.Uuid);
+                    CVRDownloadManager.Instance.RemoveQueuedUser(player.Uuid);
+                    pm.AvatarDestroyed();
+                    CacheItem.ClearTransformChildren(player.AvatarHolder);
+                    string url = null;
+                    string fileId = null;
+                    string fileHash = null;
+                    UgcTagsData tags = null;
+                    if (!hasAvatarId)
+                        avatarId = player.AvatarId;
+                    foreach (var item in downloadTasks.Values)
+                    {
+                        if (item.assetId == avatarId)
+                        {
+                            url = item.assetUrl;
+                            fileId = item.fileId;
+                            fileHash = item.fileHash;
+                            tags = item.tags.UgcTagsData;
+                            break;
+                        }
+                    }
+                    if (url == null) 
+                    {
+                        var dlTasks = CVRDownloadManager.Instance._cachedTasks;
+                        if (dlTasks.TryGetValue(avatarId, out var downloadTask)) 
+                        {
+                            url = downloadTask.FileLocation;
+                            fileId = downloadTask.FileId;
+                            fileHash = downloadTask.FileHash;
+                            tags = downloadTask.TagsData;
+                        }
+                    }
+                    if (enableMod.Value)
+                    {
+                        DownloadTaskPatch.Prefix(player.AvatarId,
+                            DownloadTask.ObjectType.Avatar,
+                            url,
+                            fileId,
+                            player.AvatarFileSize,
+                            player.AvatarFileKey,
+                            player.Uuid,
+                            fileHash,
+                            tags,
+                            player.LoadingAvatar,
+                            false);
+                    }
+                    else 
+                    {
+                        CVRDownloadManager.Instance.QueueTask(
+                            player.AvatarId,
+                            DownloadTask.ObjectType.Avatar,
+                            url,
+                            fileId,
+                            player.AvatarFileSize,
+                            player.AvatarFileKey,
+                            player.Uuid,
+                            fileHash,
+                            tags,
+                            player.LoadingAvatar,
+                            false);
+                    }
+                }
+            }
+        }
 
         [HarmonyPatch(typeof(CVRDownloadManager), nameof(CVRDownloadManager.QueueTask))]
         class DownloadTaskPatch
@@ -116,7 +254,7 @@ namespace Zettai
                 var thisDl = DLCounter.ToString("D4");
                 DLCounter++;
                 if (enableLog.Value)
-                    MelonLogger.Msg($"[DL-{thisDl}] Downloading asset '{type}': assetId: '{assetId}', fileId: '{fileId}', fileHash: '{fileHash}', fileSize: {fileSize}, toAttach: '{toAttach}' assetUrl empty? {string.IsNullOrEmpty(assetUrl)}, tags: { new Tags(tagsData) }.");
+                    MelonLogger.Msg($"[DL-{thisDl}] Downloading asset '{type}': assetId: '{assetId}', fileId: '{fileId}', fileHash: '{fileHash}', fileSize: {fileSize}, toAttach: '{toAttach}' assetUrl empty? {string.IsNullOrEmpty(assetUrl)}, tags: {( tagsData != null ? new Tags(tagsData).ToString() : "-null-") }.");
 
                 if (string.IsNullOrEmpty(fileId) && fileIds.TryGetValue(StringToLongHash(fileKey), out string FileId))
                     fileId = FileId;
@@ -438,6 +576,7 @@ namespace Zettai
             var longHash = StringToLongHash(fileKey);
             var dlData = new DownloadData(assetId, type, assetUrl, fileId, fileSize, fileKey, fileHash, joinOnComplete, tagsData, target, filePath, CVRDownloadManager.Instance.MaxBandwidth);
             downloadTasks[cacheKey] = dlData;
+
             fileIds[longHash] = fileId;
 
             if (!loadingTasks.TryGetValue(target, out var task))
@@ -476,7 +615,7 @@ namespace Zettai
                 if (enableLog.Value)
                     MelonLogger.Msg($"[DL-{thisDl}] Cached file exists: {exists}, CheckDiskCacheHash: {checkHash.Value}, fileHash: '{fileHash}' asset '{type}' with ID '{assetId}'.");
 
-                if (exists == FileCache.FileCheck.ExistsSameVersion && !string.IsNullOrEmpty(fileHash))
+                if ((exists == FileCache.FileCheck.ExistsSameVersion && !string.IsNullOrEmpty(fileHash)) || (exists == FileCache.FileCheck.ExistsDifferentVersion && string.IsNullOrEmpty(assetUrl)))
                 {
                     yield return ReadRawBytesWait(dlData, thisDl);
 
@@ -486,7 +625,7 @@ namespace Zettai
                     if (enableLog.Value)
                         MelonLogger.Msg($"[DL-{thisDl}] Cached file loaded: {dlData.FileReadDone} asset '{type}' with ID '{assetId}'.");
 
-                    if (checkHash.Value)
+                    if (checkHash.Value && !string.IsNullOrEmpty(fileHash))
                         yield return HashRawBytesWait(dlData, thisDl);
                     else
                         dlData.HashDone = true;

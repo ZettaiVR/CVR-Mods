@@ -1131,6 +1131,7 @@ namespace Zettai
             typeof(CVRBlitter),
             typeof(CVRMaterialDriver),
             typeof(CVRVariableBuffer),
+            typeof(CVRDistanceLod),
         };
         private static readonly IReadOnlyList<Type> forgottenTypesProps = new Type[]
         {
