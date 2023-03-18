@@ -64,11 +64,22 @@ namespace Zettai
             bool isLocal, bool friendsWith = false, bool isVisible = true,
             bool forceShow = false, bool forceBlock = false)
         {
-            if (instancesList == null || !OriginalItem)
-                yield break;
             yield return new WaitForEndOfFrame();
-            GameObject instance = GameObject.Instantiate(OriginalItem, parent.transform);
-            instancesList.Add(instance);
+            if (instancesList == null || !OriginalItem || !parent)
+            {
+                MelonLoader.MelonLogger.Error($"Can't instantiate asset {type}, id '{assetId}'! instancesList ok? {instancesList != null}, OriginalItem ok? {OriginalItem != null}, parent ok? {parent != null}");
+                yield break;
+            }
+            GameObject instance = null;
+            try
+            {
+                instance = GameObject.Instantiate(OriginalItem, parent.transform);
+                instancesList.Add(instance);
+            }
+            catch (Exception e) 
+            {
+                MelonLoader.MelonLogger.Error($"Error while instantiating asset {type}, id '{assetId}'! message: {e.Message}");
+            }
             if (ReadOnly)
             {
                 yield return instance;

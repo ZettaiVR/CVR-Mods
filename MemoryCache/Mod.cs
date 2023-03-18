@@ -185,14 +185,16 @@ namespace Zettai
                     UgcTagsData tags = null;
                     if (!hasAvatarId)
                         avatarId = player.AvatarId;
-                    foreach (var item in downloadTasks.Values)
+                    foreach (var item in downloadTasks)
                     {
-                        if (item.assetId == avatarId)
+                        if (item.Value.assetId == avatarId)
                         {
-                            url = item.assetUrl;
-                            fileId = item.fileId;
-                            fileHash = item.fileHash;
-                            tags = item.tags.UgcTagsData;
+                            url = item.Value.assetUrl;
+                            fileId = item.Value.fileId;
+                            fileHash = item.Value.fileHash;
+                            tags = item.Value.tags.UgcTagsData;
+                            item.Value.cancellationToken.Cancel();
+                            downloadTasks.Remove(item.Key);
                             break;
                         }
                     }
@@ -643,7 +645,7 @@ namespace Zettai
                 if (download)
                 {
                     if (enableLog.Value)
-                        MelonLogger.Msg($"[DL-{thisDl}] Starting downloading asset '{type}' with ID '{assetId}'.");
+                        MelonLogger.Msg($"[DL-{thisDl}] Starting downloading asset '{type}' with ID '{assetId}'. ");
                     yield return StartDownloadWait(dlData, thisDl);
                     if (dlData.FileReadFailed)
                     {
@@ -927,7 +929,7 @@ namespace Zettai
                             AnimatorStopwatch.Restart();
                             animator.Update(0f);
                             AnimatorStopwatch.Stop();
-                            MelonLogger.Msg($"[DL-{thisDl}] Animator exectuion time for ID '{assetId}': {AnimatorStopwatch.Elapsed.TotalMilliseconds} ms. ");
+                            MelonLogger.Msg($"[DL-{thisDl}] Animator exectuion time for ID '{assetId}': {AnimatorStopwatch.Elapsed.TotalMilliseconds} ms. Layer count: {animator.layerCount}. ");
                         }
                     }
                 }
