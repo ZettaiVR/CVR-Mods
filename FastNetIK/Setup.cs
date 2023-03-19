@@ -25,7 +25,7 @@ namespace Zettai
             data.hips = data.rotTransforms[(int)HumanBodyBones.Hips];
             data.root = animator.transform;
             PoseHandling.CalibrateMuscles(data.animator, data.boneElements, data.transformInfos);
-            Update.players.Add(player, data);
+            Update.players[player] = data;
             Update.allPlayers.Add(player);
         }
         internal static void Init(int count)
