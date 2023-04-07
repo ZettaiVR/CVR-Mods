@@ -33,6 +33,7 @@ namespace Zettai
         internal static MelonPreferences_Entry<byte> downloadThreads;
         internal static MelonPreferences_Entry<byte> verifyThreads;
         internal static MelonPreferences_Entry<bool> enableGC;
+ //       internal static MelonPreferences_Entry<bool> test;
         private static MelonPreferences_Entry<byte> maxLifeTimeMinutesEntry;
         private static MelonPreferences_Entry<byte> maxRemoveCountEntry;
         private static MelonPreferences_Entry<ushort> loadTimeoutSecondsEntry;
@@ -53,6 +54,7 @@ namespace Zettai
         private static readonly Dictionary<string, LoadTask> loadingTasks = new Dictionary<string, LoadTask>();
         private static readonly Guid BLOCKED_GUID = new Guid("B10CED00-F372-4ECE-B362-1F48E64D2F7E");
         private static readonly CacheKey BlockedKey = new CacheKey(BLOCKED_GUID, 0, 0);
+        private static int threadCount = 1;
         const string _BLOCKED_NAME = "Blocked";
         const string _BLOCKED_VERSION = "000000000000";
         const string _PROP_PATH = "assets/abi.cck/resources/cache/_cvrspawnable.prefab";
@@ -62,6 +64,7 @@ namespace Zettai
             var category = MelonPreferences.CreateCategory("Zettai");
             enableMod = category.CreateEntry("enableMemoryCacheMod", true, "Enable MemoryCache mod");
             enableLog = category.CreateEntry("enableMemoryCacheLog", false, "Enable MemoryCache logging");
+     //       test = category.CreateEntry("test", false, "[MC] test");
             downloadThreads = category.CreateEntry("downloadThreads", (byte)5, "Download threads");
             verifyThreads = category.CreateEntry("verifyThreads", (byte)5, "Bundle Verifier threads");
             downloadSemaphore.Release(downloadThreads.Value);
@@ -75,10 +78,12 @@ namespace Zettai
             maxRemoveCountEntry = category.CreateEntry("maxRemoveCountEntry", (byte)5, "Maximum number of assets to remove from cache per minute");
             loadTimeoutSecondsEntry = category.CreateEntry("loadTimeoutSecondsEntry", (ushort)60, "Loat timeout (0 = disable)");
             enableMod.OnValueChanged += EnableMod_OnValueChanged;
+            threadCount = Environment.ProcessorCount > 10 ? 2 : 1;
         }
         public override void OnLateUpdate()
         {
             UpdateLoadingAvatars();
+            FileCache.StartTasks(downloadThreads.Value, threadCount, verifyThreads.Value, threadCount);
             verifierEnabled = MetaPort.Instance?.settings.GetSettingsBool("ExperimentalBundleVerifierEnabled", false) ?? false;
             publicOnly = MetaPort.Instance?.settings.GetSettingsBool("ExperimentalBundleVerifierPublicsOnly", false) ?? false;
             isPublic = string.Equals(MetaPort.Instance?.CurrentInstancePrivacy, "public", StringComparison.OrdinalIgnoreCase);

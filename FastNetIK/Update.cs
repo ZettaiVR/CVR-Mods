@@ -27,7 +27,7 @@ namespace Zettai
         private static float PinkySplay = 0f;
         
         private static float time = 0f;
-        internal static volatile bool Test = false;
+   //     internal static volatile bool Test = false;
         internal static volatile bool AbortThreads = false;
         internal static int threadCount = 2;
         private static int playerCount = 0;
@@ -57,39 +57,44 @@ namespace Zettai
         private static TransformAccessArray rootArray;
         private static TransformAccessArray hipsArray;
         private static TransformAccessArray transformsAccess;
+        private static readonly ConcurrentStack<float[]> FloatArrayList = new ConcurrentStack<float[]>();
 
-        internal static void NetIkProcess()
+        private static float[] BorrowFloatArray95()
         {
-            float[] muscles = new float[95];
+            if (FloatArrayList.Count == 0 || !FloatArrayList.TryPop(out var array))
+            {
+                return new float[95];
+            }
+            return array;
+        }
+        private static void ReturnFloatArray95(float[] array)
+        {
+            if (array.Length == 95)
+                FloatArrayList.Push(array);
+        }
 
+        internal static void NetIkTask()
+        {
+            float[] muscles = BorrowFloatArray95();
             try
             {
-                while (!AbortThreads)
+                while (!playersToProcess.IsEmpty)
                 {
-                    try
-                    {
-                        if (!startProcessing.Wait(2))
-                            continue;
-                        while (!playersToProcess.IsEmpty)
-                        {
-                            if (!playersToProcess.TryDequeue(out var player) || !players.TryGetValue(player, out var data))
-                                continue;
+                    if (!playersToProcess.TryDequeue(out var player) || !players.TryGetValue(player, out var data))
+                        continue;
 
-                            UpdatePlayer(data, time, muscles);
-                            Interlocked.Increment(ref playersProcessed);
-                        }
-                        if (playersProcessed == playerCount && doneProcessing.CurrentCount == 0)
-                            doneProcessing.Release();
-
-                    }
-                    catch (ThreadAbortException) { }
-                    catch (Exception e)
-                    {
-                        MelonLogger.Error($"NetIkProcess failed! '{e.Message}' ");
-                    }
+                    UpdatePlayer(data, time, muscles);
+                    Interlocked.Increment(ref playersProcessed);
                 }
+                if (playersProcessed == playerCount && doneProcessing.CurrentCount == 0)
+                    doneProcessing.Release();
+
             }
-            catch (ThreadAbortException) { }
+            catch (Exception e)
+            {
+                MelonLogger.Error($"NetIkProcess failed! '{e.Message}' ");
+            }
+            ReturnFloatArray95(muscles);
         }
         internal static void UpdateFingerSpread(float thumb, float index, float middle, float ring, float little) 
         {
@@ -117,8 +122,10 @@ namespace Zettai
             {
                 playersToProcess.Enqueue(player);
             }
-            if (startProcessing.CurrentCount < 20)
-                startProcessing.Release(Mathf.Clamp(threadCount - startProcessing.CurrentCount, 1, 20));
+            for (int i = 0; i < threadCount; i++)
+            {
+                System.Threading.Tasks.Task.Run(NetIkTask);
+            }
         }
         private static void RemovePlayers()
         {
