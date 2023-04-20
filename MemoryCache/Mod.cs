@@ -33,7 +33,6 @@ namespace Zettai
         internal static MelonPreferences_Entry<byte> downloadThreads;
         internal static MelonPreferences_Entry<byte> verifyThreads;
         internal static MelonPreferences_Entry<bool> enableGC;
- //       internal static MelonPreferences_Entry<bool> test;
         private static MelonPreferences_Entry<byte> maxLifeTimeMinutesEntry;
         private static MelonPreferences_Entry<byte> maxRemoveCountEntry;
         private static MelonPreferences_Entry<ushort> loadTimeoutSecondsEntry;
@@ -64,11 +63,10 @@ namespace Zettai
             var category = MelonPreferences.CreateCategory("Zettai");
             enableMod = category.CreateEntry("enableMemoryCacheMod", true, "Enable MemoryCache mod");
             enableLog = category.CreateEntry("enableMemoryCacheLog", false, "Enable MemoryCache logging");
-     //       test = category.CreateEntry("test", false, "[MC] test");
             downloadThreads = category.CreateEntry("downloadThreads", (byte)5, "Download threads");
             verifyThreads = category.CreateEntry("verifyThreads", (byte)5, "Bundle Verifier threads");
             downloadSemaphore.Release(downloadThreads.Value);
-            FileCache.Init(downloadThreads.Value, verifyThreads.Value);
+            FileCache.Init(downloadThreads.Value);
             enableGC = category.CreateEntry("enableGC", false, "Enable GC");
             enableOwnSanitizer = category.CreateEntry("enableOwnSanitizer", false, "Enable MemoryCache sanitizer");
             enableDownloader = category.CreateEntry("enableDownloader", false, "Enable MemoryCache downloader");

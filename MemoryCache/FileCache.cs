@@ -1,12 +1,11 @@
 ﻿using ABI_RC.Systems.Safety.BundleVerifier;
 using System;
-using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using UnityEngine.Profiling;
 
 namespace Zettai
 {
@@ -15,15 +14,24 @@ namespace Zettai
         internal static readonly Dictionary<DownloadData.Status, string> StatusText = new Dictionary<DownloadData.Status, string>();
         internal static readonly Dictionary<int, string> PercentageText = new Dictionary<int, string>();
 
-        private static volatile int downloadCountMax = 5;
-        private static readonly SemaphoreSlim downloadCounter = new SemaphoreSlim(0, 32);
+        private static long downloadCountMax = 5;
+        private static long downloadCount = 0;
         private static readonly Dictionary<AssetType, (string path, string extention, DirectoryInfo directoryInfo)> names = new Dictionary<AssetType, (string path, string extention, DirectoryInfo directoryInfo)>(3);
-        private static readonly System.Collections.Concurrent.ConcurrentQueue<DownloadData> DiskWriteQueue  = new System.Collections.Concurrent.ConcurrentQueue<DownloadData>();
-        private static readonly System.Collections.Concurrent.ConcurrentQueue<DownloadData> DiskReadQueue   = new System.Collections.Concurrent.ConcurrentQueue<DownloadData>();
-        private static readonly System.Collections.Concurrent.ConcurrentQueue<DownloadData> DownloadQueue   = new System.Collections.Concurrent.ConcurrentQueue<DownloadData>();
-        private static readonly System.Collections.Concurrent.ConcurrentQueue<DownloadData> HashQueue       = new System.Collections.Concurrent.ConcurrentQueue<DownloadData>();
-        private static readonly System.Collections.Concurrent.ConcurrentQueue<DownloadData> DecryptQueue    = new System.Collections.Concurrent.ConcurrentQueue<DownloadData>();
-        private static readonly System.Collections.Concurrent.ConcurrentQueue<DownloadData> VerifyQueue     = new System.Collections.Concurrent.ConcurrentQueue<DownloadData>();
+        private static readonly ConcurrentQueue<DownloadData> DiskWriteQueue  = new ConcurrentQueue<DownloadData>();
+        private static readonly ConcurrentQueue<DownloadData> DiskReadQueue   = new ConcurrentQueue<DownloadData>();
+        private static readonly ConcurrentQueue<DownloadData> DownloadQueue   = new ConcurrentQueue<DownloadData>();
+        private static readonly ConcurrentQueue<DownloadData> HashQueue       = new ConcurrentQueue<DownloadData>();
+        private static readonly ConcurrentQueue<DownloadData> DecryptQueue    = new ConcurrentQueue<DownloadData>();
+        private static readonly ConcurrentQueue<DownloadData> VerifyQueue     = new ConcurrentQueue<DownloadData>();
+        private static readonly ConcurrentStack<byte[]>       ByteArrayList   = new ConcurrentStack<byte[]>();
+
+        private static int DownloadsInProgress = 0;
+        private static int DecryptInProgress = 0;
+        private static int HashInProgress = 0;
+        private static int VerifyInProgress = 0;
+        private static int WriteToDiskInProgress = 0;
+        private static int ReadFromDiskInProgress = 0;
+
         private static readonly HashSet<FileInfo> FilesToDelete = new HashSet<FileInfo>();
         private static volatile bool AbortThreads = false;
         private static bool InitDirectoryNamesDone = false;
@@ -39,18 +47,18 @@ namespace Zettai
             int hashQueue = HashQueue.Count;
             int decryptQueue = DecryptQueue.Count;
             int verifyQueue = VerifyQueue.Count;
-            
-            if (diskWriteQueue > 0)
+
+            if (diskWriteQueue > 0 && WriteToDiskInProgress == 0)
             {
                 Task.Run(WriteToDiskTask);
             }
-            if (diskReadQueue > 0)
+            if (diskReadQueue > 0 && ReadFromDiskInProgress == 0)
             {
                 Task.Run(ReadFromDiskTask);
             }
             if (downloadQueue > 0)
             {
-                int max = Math.Min(maxThreadCountDownload, downloadQueue);
+                int max = Math.Min(maxThreadCountDownload - DownloadsInProgress, downloadQueue);
                 for (int i = 0; i < max; i++)
                 {
                     Task.Run(DownloadTask);
@@ -58,7 +66,7 @@ namespace Zettai
             }
             if (decryptQueue > 0)
             {
-                int max = Math.Min(maxThreadCountDecrypt, decryptQueue);
+                int max = Math.Min(maxThreadCountDecrypt - DecryptInProgress, decryptQueue);
                 for (int i = 0; i < max; i++)
                 {
                     Task.Run(DecryptTask);
@@ -66,7 +74,7 @@ namespace Zettai
             }
             if (hashQueue > 0)
             {
-                int max = Math.Min(maxThreadCountHash, hashQueue);
+                int max = Math.Min(maxThreadCountHash - HashInProgress, hashQueue);
                 for (int i = 0; i < max; i++)
                 {
                     Task.Run(HashByteArrayTask);
@@ -74,15 +82,14 @@ namespace Zettai
             }
             if (verifyQueue > 0)
             {
-                int max = Math.Min(maxThreadCountVerify, verifyQueue);
+                int max = Math.Min(maxThreadCountVerify - VerifyInProgress, verifyQueue);
                 for (int i = 0; i < max; i++)
                 {
                     Task.Run(VerifyTask);
                 }
             }
         }
-
-        internal static void SetMaxDownloadCount(int value) => downloadCountMax = value;
+        internal static void SetMaxDownloadCount(int newValue) => Interlocked.Exchange(ref downloadCountMax, newValue);
         internal static bool InitDone { get; private set; } = false;
         internal static void AbortAllThreads() => AbortThreads = true;
         internal static void Verify(DownloadData dlData) => VerifyQueue.Enqueue(dlData);
@@ -132,6 +139,7 @@ namespace Zettai
         {
             try
             {
+                Interlocked.Increment(ref DecryptInProgress);
                 sw.Restart();
                 result.status = DownloadData.Status.Decrypting;
                 var size = result.fileSize;
@@ -140,17 +148,6 @@ namespace Zettai
                 result.decryptedData = decrypt.Decrypt(result.assetId, result.rawData, key);
                 sw.Stop();
                 result.DecryptDone = true;
-
-                /*
-                // test against the original
-
-                sw.Restart();
-                var _ = new ABI_RC.Core.CVRDecrypt().Decrypt(result.assetId, result.rawData, key);
-                last = sw.Elapsed;
-                if (MemoryCache.enableLog.Value)
-                    MelonLoader.MelonLogger.Msg($"Decrypt (CVR): {last.TotalMilliseconds} ms, {size/ 1024f / 1024f} MB ");
-
-                 */
             }
             catch (Exception e)
             {
@@ -162,11 +159,13 @@ namespace Zettai
             {
                 sw.Stop();
                 result.DecryptTime = sw.Elapsed;
+                Interlocked.Decrement(ref DecryptInProgress);
             }
         }
 
         private static void WriteToDiskTask()
         {
+            Interlocked.Increment(ref WriteToDiskInProgress);
             var sw = new System.Diagnostics.Stopwatch();
             while (!DiskWriteQueue.IsEmpty)
             {
@@ -175,6 +174,7 @@ namespace Zettai
 
                 WriteToDisk(sw, result);
             }
+            Interlocked.Decrement(ref WriteToDiskInProgress);
         }
 
         private static void WriteToDisk(System.Diagnostics.Stopwatch sw, DownloadData result)
@@ -219,11 +219,13 @@ namespace Zettai
                     var rateLimit = data.rateLimit; // bytes per sec
                     var timeLimit = rateLimit > 0 ? bufferSize1000Double / rateLimit : 1d; // millisec per read event
                     var stopWatch = new System.Diagnostics.Stopwatch();
-                    downloadCounter.Wait(data.cancellationToken.Token);
+                    Interlocked.Increment(ref downloadCount);
                     do
                     {
                         stopWatch.Start();
-                        var freeSlots = (downloadCounter.CurrentCount + 1f) / downloadCountMax;
+                        var maxSlots = Interlocked.Read(ref downloadCountMax);
+                        var usedSlots = Math.Max(0, Interlocked.Read(ref downloadCount)); // at least one, even when you just decreased the max count
+                        var freeSlots = (maxSlots - usedSlots + 1f) / maxSlots;
                         var actualTimeLimit = timeLimit * freeSlots;
                         var bytesRead = webStream.ReadAsync(buffer, 0, buffer.Length, data.cancellationToken.Token).Result;
                         if (bytesRead == 0)
@@ -259,10 +261,9 @@ namespace Zettai
                         }
                     }
                     while (isMoreToRead);
-
+                    Interlocked.Decrement(ref downloadCount);
                 }
             }
-            downloadCounter.Release();
         }
         private static void DownloadTask()
         {
@@ -272,7 +273,7 @@ namespace Zettai
                 {
                     Thread.Sleep(sleepTime);
                     if (!DownloadQueue.TryDequeue(out var result))
-                        continue;
+                        continue;                
                     Download(sw, _httpClient, result);
                 }
         }
@@ -280,6 +281,7 @@ namespace Zettai
         {
             try
             {
+                Interlocked.Increment(ref DownloadsInProgress);
                 sw.Restart();
                 DownloadAsync(result, _httpClient);
             }
@@ -293,11 +295,13 @@ namespace Zettai
             {
                 sw.Stop();
                 result.DownloadTime = sw.Elapsed;
+                Interlocked.Decrement(ref DownloadsInProgress);
             }
         }
 
         private static void ReadFromDiskTask()
         {
+            Interlocked.Increment(ref ReadFromDiskInProgress);
             var sw = new System.Diagnostics.Stopwatch();
             while (!DiskReadQueue.IsEmpty)
             {
@@ -307,6 +311,7 @@ namespace Zettai
 
                 ReadFromDisk(sw, result);
             }
+            Interlocked.Decrement(ref ReadFromDiskInProgress);
         }
 
         private static void ReadFromDisk(System.Diagnostics.Stopwatch sw, DownloadData result)
@@ -347,7 +352,6 @@ namespace Zettai
             ReturnByteArray1M(hashBuffer);
         }
 
-        private static readonly System.Collections.Concurrent.ConcurrentStack<byte[]> ByteArrayList = new System.Collections.Concurrent.ConcurrentStack<byte[]>();
         private static byte[] BorrowByteArray1M() 
         {
             if (ByteArrayList.Count == 0 || !ByteArrayList.TryPop(out var array))
@@ -366,6 +370,7 @@ namespace Zettai
         {
             try
             {
+                Interlocked.Increment(ref HashInProgress);
                 sw.Restart();
                 if (result?.rawData == null)
                 {
@@ -402,6 +407,7 @@ namespace Zettai
             {
                 sw.Stop();
                 result.MD5HashTime = sw.Elapsed;
+                Interlocked.Decrement(ref HashInProgress);
             }
         }
 
@@ -463,6 +469,7 @@ namespace Zettai
         {
             try
             {
+                Interlocked.Increment(ref VerifyInProgress);
                 sw.Restart();
                 result.status = DownloadData.Status.BundleVerifier;
                 VerifyBundle(result);
@@ -479,6 +486,7 @@ namespace Zettai
             {
                 sw.Stop();
                 result.VerifyTime = sw.Elapsed;
+                Interlocked.Decrement(ref VerifyInProgress);
             }
         }
 
@@ -511,11 +519,11 @@ namespace Zettai
 
             InitDirectoryNamesDone = true;
         }
-        internal static void Init(int downloadThreads = 5, int verifyThreads = 5)
+        internal static void Init(int downloadThreads)
         {
-            downloadCountMax = downloadThreads;
-            downloadCounter.Release(downloadThreads);
-            
+            SetMaxDownloadCount(downloadThreads);
+
+
             for (int i = 0; i < 100; i++)
             {
                 PercentageText[i] = $"Downloading {i} %";
