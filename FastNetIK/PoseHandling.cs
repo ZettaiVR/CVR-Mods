@@ -9,7 +9,11 @@ namespace Zettai
 {
     public class PoseHandling
     {
-        public static Quaternion GetBoneRotation(BoneElement boneElement, float[] muscles)
+        public unsafe static Quaternion GetBoneRotation(BoneElement boneElement, float[] muscles) 
+        {
+            fixed (float* musclesPtr = muscles) { return GetBoneRotation(boneElement, musclesPtr); }
+        }
+        public unsafe static Quaternion GetBoneRotation(BoneElement boneElement, float* muscles)
         {
             var dof = boneElement.dofExists;
             if (!dof.w)
@@ -118,14 +122,24 @@ namespace Zettai
         }
         private static readonly Quaternion lowerLegQ = Quaternion.Euler(270, 0, 0);  // Magic numbers derived from a few sample avatars with 0 bone rolls.
         private static readonly Quaternion lowerArmQ = Quaternion.Euler(340, 0, 10);
-        public static void FixBoneTwist(Quaternion[] rotations, BoneElement[] boneElements, float[] muscles)
+        public static unsafe void FixBoneTwist(Quaternion[] rotations, BoneElement[] boneElements, float[] muscles)
+        {
+            fixed (float* musclesPtr = muscles)
+            {
+                FixLimbChain(rotations, boneElements, musclesPtr, lowerArmQ, (int)HumanBodyBones.LeftUpperArm, (int)MuscleNamesEnum.LeftArmTwistInOut);
+                FixLimbChain(rotations, boneElements, musclesPtr, lowerArmQ, (int)HumanBodyBones.RightUpperArm, (int)MuscleNamesEnum.RightArmTwistInOut);
+                FixLimbChain(rotations, boneElements, musclesPtr, lowerLegQ, (int)HumanBodyBones.LeftUpperLeg, (int)MuscleNamesEnum.LeftUpperLegTwistInOut);
+                FixLimbChain(rotations, boneElements, musclesPtr, lowerLegQ, (int)HumanBodyBones.RightUpperLeg, (int)MuscleNamesEnum.RightUpperLegTwistInOut);
+            }
+        }
+        public static unsafe void FixBoneTwist(Quaternion[] rotations, BoneElement[] boneElements, float* muscles)
         {
             FixLimbChain(rotations, boneElements, muscles, lowerArmQ, (int)HumanBodyBones.LeftUpperArm, (int)MuscleNamesEnum.LeftArmTwistInOut);
             FixLimbChain(rotations, boneElements, muscles, lowerArmQ, (int)HumanBodyBones.RightUpperArm, (int)MuscleNamesEnum.RightArmTwistInOut);
             FixLimbChain(rotations, boneElements, muscles, lowerLegQ, (int)HumanBodyBones.LeftUpperLeg, (int)MuscleNamesEnum.LeftUpperLegTwistInOut);
             FixLimbChain(rotations, boneElements, muscles, lowerLegQ, (int)HumanBodyBones.RightUpperLeg, (int)MuscleNamesEnum.RightUpperLegTwistInOut);
         }
-        private static void FixLimbChain(Quaternion[] rotations, BoneElement[] boneElements, float[] muscles, Quaternion lowerQ, int startIndex, int startMuscle) 
+        private static unsafe void FixLimbChain(Quaternion[] rotations, BoneElement[] boneElements, float* muscles, Quaternion lowerQ, int startIndex, int startMuscle) 
         {
             var boneElementUpper = boneElements[startIndex];
             var upperMuscle = muscles[startMuscle];

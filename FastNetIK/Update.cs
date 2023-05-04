@@ -1,10 +1,7 @@
 ﻿using ABI_RC.Core.Player;
 using MagicaCloth;
 using MelonLoader;
-using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Threading;
 using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
@@ -15,25 +12,24 @@ namespace Zettai
 {
     class Update
     {
-        public static bool writeStarted = false;
+        internal static JobHandle processingJobHandle;
+        internal static JobHandle copyJobHandle;
         public static JobHandle writeJobHandle;
         public static JobHandle writeJobHandleRoot;
         public static JobHandle writeJobHandleHips;
         private static bool rebuildTransformAccess = true;
+        private static bool initDone = false;
         private static float ThumbsSplay = 0.3f;
         private static float IndexSplay = 0f;
         private static float MiddleSplay = 0f;
         private static float RingSplay = 0f;
         private static float PinkySplay = 0f;
         
-        private static float time = 0f;
    //     internal static volatile bool Test = false;
-        internal static volatile bool AbortThreads = false;
-        internal static int threadCount = 2;
-        private static int playerCount = 0;
-        internal static readonly SemaphoreSlim startProcessing = new SemaphoreSlim(0, 20);
-        private static readonly SemaphoreSlim doneProcessing = new SemaphoreSlim(0, 20);
-        private static readonly float[] staticMuscles = new float[95];
+        private static readonly byte[] boneFlagArray = new byte[256];
+        private static readonly int[] writeBoneIndexArray = new int[256];
+        private static readonly int[] boneParentIndexArray = new int[256];
+        private static readonly short[] boneUnityPhysicsArray = new short[256];
         private static readonly int BoneCount = (int)HumanBodyBones.LastBone;
         internal static readonly List<TransformInfoInit> transformInfoInitList = new List<TransformInfoInit>();
         internal static readonly List<Transform> transformsAccessList = new List<Transform>();
@@ -43,8 +39,7 @@ namespace Zettai
         internal static readonly HashSet<PuppetMaster> allPlayers = new HashSet<PuppetMaster>();
         internal static readonly Dictionary<PuppetMaster, NetIkData> players = new Dictionary<PuppetMaster, NetIkData>();
         internal static readonly Dictionary<Animator, PuppetMaster> puppetMasters = new Dictionary<Animator, PuppetMaster>();
-        private static readonly ConcurrentQueue<PuppetMaster> playersToProcess = new ConcurrentQueue<PuppetMaster>(); 
-        internal static int playersProcessed = 0;
+        private static readonly List<PuppetMaster> playersToProcessList = new List<PuppetMaster>(256);
         private static NativeArray<TransformInfoInit> transformInfoInitArray;
         private static NativeArray<byte>  boneFlagList;
         private static NativeArray<int>   writeBoneIndexList;
@@ -57,45 +52,48 @@ namespace Zettai
         private static TransformAccessArray rootArray;
         private static TransformAccessArray hipsArray;
         private static TransformAccessArray transformsAccess;
-        private static readonly ConcurrentStack<float[]> FloatArrayList = new ConcurrentStack<float[]>();
 
-        private static float[] BorrowFloatArray95()
+        struct NetIkProcessingJob : IJobParallelFor
         {
-            if (FloatArrayList.Count == 0 || !FloatArrayList.TryPop(out var array))
+            private readonly float time;
+            public NetIkProcessingJob(float time)
             {
-                return new float[95];
+                this.time = time;
             }
-            return array;
-        }
-        private static void ReturnFloatArray95(float[] array)
-        {
-            if (array.Length == 95)
-                FloatArrayList.Push(array);
-        }
-
-        internal static void NetIkTask()
-        {
-            float[] muscles = BorrowFloatArray95();
-            try
+            public void Execute(int index)
             {
-                while (!playersToProcess.IsEmpty)
+                var player = playersToProcessList[index];
+                if (players.TryGetValue(player, out var data))
+                    UpdatePlayer(data, time);
+            }
+        }
+        struct NetIkCopyJob : IJob
+        {
+            public void Execute()
+            {
+                if (!rebuildTransformAccess &&
+                transformInfoInitArray.IsCreated &&
+                allPlayers.Count * BoneCount == transformInfoInitArray.Length &&
+                writeBonePosListRoot.IsCreated &&
+                writeBoneRotListRoot.IsCreated &&
+                writeBonePosListHips.IsCreated &&
+                writeBoneRotListHips.IsCreated)
                 {
-                    if (!playersToProcess.TryDequeue(out var player) || !players.TryGetValue(player, out var data))
-                        continue;
-
-                    UpdatePlayer(data, time, muscles);
-                    Interlocked.Increment(ref playersProcessed);
+                    int index = 0;
+                    int count = 0;
+                    foreach (var item in players)
+                    {
+                        NativeArray<TransformInfoInit>.Copy(item.Value.transformInfos, 0, transformInfoInitArray, index, item.Value.transformInfos.Length);
+                        index += item.Value.transformInfos.Length;
+                        writeBonePosListRoot[count] = item.Value.rootPosInterpolated;
+                        writeBoneRotListRoot[count] = item.Value.rootRotInterpolated;
+                        writeBonePosListHips[count] = item.Value.hipsPosInterpolated;
+                        writeBoneRotListHips[count++] = item.Value.hipsRotInterpolated;
+                    }
                 }
-                if (playersProcessed == playerCount && doneProcessing.CurrentCount == 0)
-                    doneProcessing.Release();
-
             }
-            catch (Exception e)
-            {
-                MelonLogger.Error($"NetIkProcess failed! '{e.Message}' ");
-            }
-            ReturnFloatArray95(muscles);
         }
+
         internal static void UpdateFingerSpread(float thumb, float index, float middle, float ring, float little) 
         {
             ThumbsSplay = thumb;
@@ -104,29 +102,16 @@ namespace Zettai
             RingSplay = ring;
             PinkySplay = little;
         }
-        internal static void AbortAllThreads()
-        {
-            AbortThreads = true;
-        }
         public static void StartProcessing()
         {
-            if (doneProcessing.CurrentCount > 0)
-                for (int i = 0; i < doneProcessing.CurrentCount; i++)
-                    doneProcessing.Wait(0);
-
-            writeStarted = false;
             RemovePlayers();
-            time = Time.time;
-            playerCount = allPlayers.Count;
-            foreach (var player in allPlayers)
-            {
-                playersToProcess.Enqueue(player);
-            }
-            for (int i = 0; i < threadCount; i++)
-            {
-                System.Threading.Tasks.Task.Run(NetIkTask);
-            }
+            playersToProcessList.Clear();
+            playersToProcessList.AddRange(allPlayers);
+            RebuildArraysIfNeeded();
+            processingJobHandle = new NetIkProcessingJob(Time.time).Schedule(playersToProcessList.Count, 1);
+            copyJobHandle = new NetIkCopyJob().Schedule(processingJobHandle);
         }
+    
         private static void RemovePlayers()
         {
             foreach (var player in allPlayers)
@@ -157,59 +142,30 @@ namespace Zettai
             }
             allPlayers.Remove(player);
         }
-        public static void EndProcessing()
-        {
-            writeStarted = true;
-            if (playersProcessed != playerCount)
-            {
-                doneProcessing.Wait(8); // if it takes more than 8 ms there's clearly something wrong there
-                if (!playersToProcess.IsEmpty)
-                {
-                    var count = playersToProcess.Count;
-                    for (int i = 0; i < count; i++)
-                    {
-                        playersToProcess.TryDequeue(out var _);
-                    }
-                }
-            }
-            playersProcessed = 0;
-        }
         public static void StartJobs()
         {
-            UpdateArrays();
+            if (!initDone)
+                RebuildArrays();
             ScheduleJobs();
         }
-        private static void UpdateArrays()
+        private static void RebuildArraysIfNeeded()
         {
-            if (!rebuildTransformAccess && 
-                transformInfoInitArray.IsCreated &&
-                allPlayers.Count * BoneCount == transformInfoInitArray.Length &&
-                transformsAccess.isCreated && 
-                writeBonePosListRoot.IsCreated && 
-                writeBoneRotListRoot.IsCreated &&
-                writeBonePosListHips.IsCreated &&
-                writeBoneRotListHips.IsCreated &&
-                rootArray.isCreated &&
-                hipsArray.isCreated)
+            if (rebuildTransformAccess ||
+                    !transformInfoInitArray.IsCreated ||
+                    allPlayers.Count * BoneCount != transformInfoInitArray.Length ||
+                    !transformsAccess.isCreated ||
+                    !writeBonePosListRoot.IsCreated ||
+                    !writeBoneRotListRoot.IsCreated ||
+                    !writeBonePosListHips.IsCreated ||
+                    !writeBoneRotListHips.IsCreated ||
+                    !rootArray.isCreated ||
+                    !hipsArray.isCreated)
             {
-                int index = 0;
-                int count = 0;
-                foreach (var item in players)
-                {
-                    NativeArray<TransformInfoInit>.Copy(item.Value.transformInfos, 0, transformInfoInitArray, index, item.Value.transformInfos.Length);
-                    index += item.Value.transformInfos.Length;
-                    writeBonePosListRoot[count] = item.Value.rootPosInterpolated;
-                    writeBoneRotListRoot[count] = item.Value.rootRotInterpolated;
-                    writeBonePosListHips[count] = item.Value.hipsPosInterpolated;
-                    writeBoneRotListHips[count++] = item.Value.hipsRotInterpolated;
-                }
-                return;
+                RebuildArrays();
             }
-            RebuildArrays();
         }
         private static void RebuildArrays() 
         {
-         //MelonLogger.Msg($"UpdateArrays: {rebuildTransformAccess}, {transformInfoInitArray.IsCreated} {transformsAccess.isCreated} {allPlayers.Count}, {BoneCount}, {allPlayers.Count * BoneCount} {transformInfoInitArray.Length}");
             transformsAccessListRoot.Clear();
             transformsAccessListHips.Clear();
             transformsAccessList.Clear();
@@ -258,7 +214,8 @@ namespace Zettai
             transformsAccessList.Clear();
             transformInfoInitList.Clear();
             transformsAccessListRoot.Clear();
-            transformsAccessListHips.Clear();        
+            transformsAccessListHips.Clear();
+            initDone = true;
         }
         internal static unsafe void ArrayInit()
         {
@@ -295,19 +252,7 @@ namespace Zettai
                 boneParentIndexList = new NativeArray<int>(boneParentIndexArray, Allocator.Persistent);
             if (!boneUnityPhysicsList.IsCreated)
                 boneUnityPhysicsList = new NativeArray<short>(boneUnityPhysicsArray, Allocator.Persistent);
-        }
-        private static readonly byte[] boneFlagArray = new byte[256];
-        private static readonly int[] writeBoneIndexArray = new int[256];
-        private static readonly int[] boneParentIndexArray = new int[256];
-        private static readonly short[] boneUnityPhysicsArray = new short[256];
-        private static void UpdateAll()
-        {
-            RemovePlayers();
-            var time = Time.time;
-            foreach (var item in players)
-                UpdatePlayer(item.Value, time, staticMuscles);
-            UpdateArrays();
-            ScheduleJobs();
+            RebuildArrays();
         }
         private static void ScheduleJobs()
         {
@@ -320,7 +265,7 @@ namespace Zettai
                 writeBonePosList = writeBonePosListRoot,
                 writeBoneRotList = writeBoneRotListRoot,
                 boneUnityPhysicsList = boneUnityPhysicsList
-            }.Schedule(rootArray);
+            }.Schedule(rootArray, copyJobHandle);
             writeJobHandleHips = new PhysicsManagerBoneData.WriteBontToTransformJob2()
             {
                 fixedUpdateCount = 1,
@@ -333,8 +278,9 @@ namespace Zettai
             }.Schedule(hipsArray, writeJobHandleRoot);
             writeJobHandle = new ApplyAllLocalTransforms(transformInfoInitArray).Schedule(transformsAccess, writeJobHandleHips);
         }
-        private static void UpdatePlayer(NetIkData netIkData, float time, float[] muscles)
+        private static unsafe void UpdatePlayer(NetIkData netIkData, float time) //, float[] muscles)
         {
+            var muscles = stackalloc float[95];
             var puppetMaster = netIkData.puppetMaster;
             Vector3 rot;
             if (puppetMaster._lastUpdate != netIkData.updateCurr)
@@ -421,7 +367,7 @@ namespace Zettai
                 netIkData.fingers = false;
             }
         }
-        internal static void SetMuscleValues(float[] muscles, PlayerAvatarMovementData data)
+        internal static unsafe void SetMuscleValues(float* muscles, PlayerAvatarMovementData data)
         {
             muscles[0] = data.SpineFrontBack;
             muscles[1] = data.SpineLeftRight;
@@ -472,24 +418,24 @@ namespace Zettai
             muscles[52] = data.RightForearmTwistInOut;
             muscles[53] = data.RightHandDownUp;
             muscles[54] = data.RightHandInOut;
-            if (data.IndexUseIndividualFingers)
-            {
-                muscles[55] = muscles[57] = muscles[58] = data.LeftThumbCurl;
-                muscles[59] = muscles[61] = muscles[62] = data.LeftIndexCurl;
-                muscles[63] = muscles[65] = muscles[66] = data.LeftMiddleCurl;
-                muscles[67] = muscles[69] = muscles[70] = data.LeftRingCurl;
-                muscles[71] = muscles[73] = muscles[74] = data.LeftPinkyCurl;
-                muscles[75] = muscles[77] = muscles[78] = data.RightThumbCurl;
-                muscles[79] = muscles[81] = muscles[82] = data.RightIndexCurl;
-                muscles[83] = muscles[85] = muscles[86] = data.RightMiddleCurl;
-                muscles[87] = muscles[89] = muscles[90] = data.RightRingCurl;
-                muscles[91] = muscles[93] = muscles[94] = data.RightPinkyCurl;
-                muscles[56] = muscles[76] = ThumbsSplay;
-                muscles[60] = muscles[80] = IndexSplay;
-                muscles[64] = muscles[84] = MiddleSplay;
-                muscles[68] = muscles[88] = RingSplay;
-                muscles[72] = muscles[92] = PinkySplay;
-            }
+            if (!data.IndexUseIndividualFingers)
+                return;
+
+            muscles[55] = muscles[57] = muscles[58] = 0.7f + -1.7f * data.LeftThumbCurl;
+            muscles[59] = muscles[61] = muscles[62] = 0.7f + -1.7f * data.LeftIndexCurl;
+            muscles[63] = muscles[65] = muscles[66] = 0.7f + -1.7f * data.LeftMiddleCurl;
+            muscles[67] = muscles[69] = muscles[70] = 0.7f + -1.7f * data.LeftRingCurl;
+            muscles[71] = muscles[73] = muscles[74] = 0.7f + -1.7f * data.LeftPinkyCurl;
+            muscles[75] = muscles[77] = muscles[78] = 0.7f + -1.7f * data.RightThumbCurl;
+            muscles[79] = muscles[81] = muscles[82] = 0.7f + -1.7f * data.RightIndexCurl;
+            muscles[83] = muscles[85] = muscles[86] = 0.7f + -1.7f * data.RightMiddleCurl;
+            muscles[87] = muscles[89] = muscles[90] = 0.7f + -1.7f * data.RightRingCurl;
+            muscles[91] = muscles[93] = muscles[94] = 0.7f + -1.7f * data.RightPinkyCurl;
+            muscles[56] = muscles[76] = ThumbsSplay;
+            muscles[60] = muscles[80] = IndexSplay;
+            muscles[64] = muscles[84] = MiddleSplay;
+            muscles[68] = muscles[88] = RingSplay;
+            muscles[72] = muscles[92] = PinkySplay;
         }
     }
 }

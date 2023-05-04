@@ -10,7 +10,7 @@ namespace Zettai
     public class FastNetIkMod : MelonMod
     {
         private static MelonPreferences_Entry<bool> netIk;
-        private static MelonPreferences_Entry<int> netIkThreads;
+      //  private static MelonPreferences_Entry<bool> netIkTest;
         private static MelonPreferences_Entry<float> netIkThumbsSplay;
         private static MelonPreferences_Entry<float> netIkIndexSplay;
         private static MelonPreferences_Entry<float> netIkMiddleSplay;
@@ -20,8 +20,7 @@ namespace Zettai
         {
             var category = MelonPreferences.CreateCategory("Zettai");
             netIk = category.CreateEntry("FastNetIK", true, "Fast NetIK enable");
-            netIkThreads = category.CreateEntry("netIkThreads", 2, "NetIK thread count (1..8)");
-            netIkThreads.OnValueChanged += NetIkThreads_OnValueChanged;
+     //       netIkTest = category.CreateEntry("netIkTest", true, "Fast NetIK test");
 
             netIkThumbsSplay = category.CreateEntry("netIkThumbsSplay", 0.3f, "Thumb spread (-1..1)");
             netIkIndexSplay = category.CreateEntry("netIkIndexSplay", 0f, "Index finger spread (-1..1)");
@@ -34,8 +33,12 @@ namespace Zettai
             netIkMiddleSplay.OnValueChanged += NetIkSplay_OnValueChanged;
             netIkRingSplay.OnValueChanged += NetIkSplay_OnValueChanged;
             netIkLittleSplay.OnValueChanged += NetIkSplay_OnValueChanged;
-            Setup.Init(netIkThreads.Value);
+      //      netIkTest.OnValueChanged += NetIkTest_OnValueChanged;
+            Setup.Init(); 
+     //       Update.Test = netIkTest.Value;
         }
+
+     //   private void NetIkTest_OnValueChanged(bool arg1, bool arg2) => Update.Test = arg2;
 
         private void NetIkSplay_OnValueChanged(float arg1, float arg2)
         {
@@ -46,11 +49,12 @@ namespace Zettai
             var little = netIkLittleSplay.Value = Mathf.Clamp(netIkLittleSplay.Value, -1f, 1f);
             Update.UpdateFingerSpread(thumb, index, middle, ring, little);
         }
-
-        private void NetIkThreads_OnValueChanged(int old, int value) => Setup.SetThreadCount(value);
-        public override void OnApplicationQuit()
+              
+        public override void OnLateUpdate()
         {
-            Update.AbortAllThreads();
+            if (!netIk.Value)
+                return;
+            Update.StartJobs();
         }
         [HarmonyPatch(typeof(DbJobsColliderUpdate), nameof(DbJobsColliderUpdate.Update))]
         class OnUpdateEnd
@@ -81,17 +85,6 @@ namespace Zettai
             static void Postfix(PuppetMaster __instance)
             {
                 Update.RemovePlayer(__instance);
-            }
-        }
-        [HarmonyPatch(typeof(DbJobsColliderUpdate), nameof(DbJobsColliderUpdate.LateUpdate))]
-        class DbJobsColliderLateUpdate
-        {
-            static void Prefix()
-            {
-                if (!netIk.Value)
-                    return;
-                Update.EndProcessing();
-                Update.StartJobs();
             }
         }
         [HarmonyPatch(typeof(PlayerAvatarMovementData), nameof(PlayerAvatarMovementData.WriteDataToAnimatorLerped))]

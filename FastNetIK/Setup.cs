@@ -1,13 +1,10 @@
 ﻿using ABI_RC.Core.Player;
-using System.Collections.Generic;
-using System.Threading;
 using UnityEngine;
 
 namespace Zettai
 {
     class Setup
     {
-        private const int MaxThreads = 8;
         public static void AddPlayer(PuppetMaster player)
         {
             var data = new NetIkData();
@@ -27,9 +24,8 @@ namespace Zettai
             Update.players[player] = data;
             Update.allPlayers.Add(player);
         }
-        internal static void Init(int count)
+        internal static void Init()
         {
-            Update.threadCount = Mathf.Clamp(count, 1, MaxThreads);
             Update.ArrayInit();
         }
         
@@ -39,10 +35,6 @@ namespace Zettai
             if (Update.puppetMasters.TryGetValue(animator, out var pm))  
                 return Update.players.TryGetValue(pm, out value);
             return false;
-        }
-        public static void SetThreadCount(int count)
-        {
-            Update.threadCount = Mathf.Clamp(count, 1, MaxThreads);
         }
     }
 }
