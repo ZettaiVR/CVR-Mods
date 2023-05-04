@@ -33,11 +33,8 @@ namespace Zettai
         private struct CopyEvent
         {
             public int sourceStart;
-
             public int length;
-
             public bool sourceIsKey;
-
             public CopyEvent(int sourceStart, int length, bool sourceIsKey)
             {
                 this.sourceStart = sourceStart;

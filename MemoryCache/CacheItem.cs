@@ -37,7 +37,7 @@ namespace Zettai
         }
         internal CacheItem(string id, string FileId, AssetType type, GameObject item, Tags tags, string name) : this(id, FileId, type, item, tags, name, string.Empty, false, null) { }
         internal CacheItem(string id, string FileId, AssetType type, GameObject item, Tags tags, string name, bool readOnly) : this(id, FileId, type, item, tags, string.Empty, name, readOnly, null) { }
-        internal CacheItem(string id, string FileId, AssetType type, GameObject item, Tags tags, string name, string assetName, AssetBundle assetBundle) : this(id, FileId, type, item, tags, assetName, name, false, assetBundle) { }
+        internal CacheItem(string id, string FileId, AssetType type, GameObject item, Tags tags, string name, string assetName, AssetBundle assetBundle) : this(id, FileId, type, item, tags, name, assetName, false, assetBundle) { }
         public override string ToString() => string.IsNullOrEmpty(Name) ? AssetId : Name;
         private readonly AssetBundle assetBundle = null;
         private readonly GameObject OriginalItem;
@@ -53,6 +53,7 @@ namespace Zettai
         public AssetType ObjectType { get; }
         public Tags Tags { get; }
         public DateTime AddTime { get; }
+        public AvatarInfo Stats { get; private set; }
         public int InstanceCount => instances.Count;
         public List<GameObject> Instances => new List<GameObject>(instances);
         public bool CanRemove(TimeSpan maxAge, DateTime now, out TimeSpan age)
@@ -60,6 +61,41 @@ namespace Zettai
             age = now - lastRefRemoved;
             return !ReadOnly && InstanceCount == 0 && age > maxAge;
         }
+        public IEnumerator PerfCheck(GameObject instance)
+        {
+            if (Stats != null)
+                yield break;
+            
+            var stats = Stats = new AvatarInfo();
+           // var instance = OriginalItem;
+            Stats.avatarName = ToString();
+            if (!instance)
+                yield break;
+
+            stats.StartWatch();
+            try
+            {
+                AvatarInfoCalc.Instance.CountObjects(instance, stats);
+                AvatarInfoCalc.Instance.CheckAudio(instance, stats);
+                AvatarInfoCalc.Instance.CheckCloth(instance, stats);
+                AvatarInfoCalc.Instance.CheckRenderers(instance, stats);
+                AvatarInfoCalc.Instance.CheckTextures(instance, stats);
+            }
+            catch (Exception){}
+            finally 
+            {
+                stats.StopWatch();
+            }
+            yield return waitFor0_1Seconds;
+            if (instance)
+            {
+                stats.StartWatch();
+                AvatarInfoCalc.Instance.CheckDB(instance, stats);
+                stats.StopWatch();
+            }
+            MelonLoader.MelonLogger.Msg(stats);
+        }
+        private static readonly WaitForSeconds waitFor0_1Seconds = new WaitForSeconds(0.1f);
         public IEnumerator GetSanitizedAsset(GameObject parent, DownloadTask.ObjectType type, List<GameObject> instancesList, Tags tags, string assetId, 
             bool isLocal, bool friendsWith = false, bool isVisible = true,
             bool forceShow = false, bool forceBlock = false)

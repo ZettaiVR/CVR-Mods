@@ -33,6 +33,7 @@ namespace Zettai
         internal static MelonPreferences_Entry<byte> downloadThreads;
         internal static MelonPreferences_Entry<byte> verifyThreads;
         internal static MelonPreferences_Entry<bool> enableGC;
+        internal static MelonPreferences_Entry<bool> enablePerfStat;
         private static MelonPreferences_Entry<byte> maxLifeTimeMinutesEntry;
         private static MelonPreferences_Entry<byte> maxRemoveCountEntry;
         private static MelonPreferences_Entry<ushort> loadTimeoutSecondsEntry;
@@ -70,6 +71,7 @@ namespace Zettai
             enableGC = category.CreateEntry("enableGC", false, "Enable GC");
             enableOwnSanitizer = category.CreateEntry("enableOwnSanitizer", false, "Enable MemoryCache sanitizer");
             enableDownloader = category.CreateEntry("enableDownloader", false, "Enable MemoryCache downloader");
+            enablePerfStat = category.CreateEntry("enablePerfStat", false, "Enable logging performance stats");
             checkHash = category.CreateEntry("checkHash", true, "Check file hash");
             enableHologram = category.CreateEntry("enableHologram", true, "Enable Hologram (?)");
             maxLifeTimeMinutesEntry = category.CreateEntry("maxLifeTimeMinutesEntry", (byte)15, "Maximum lifetime of unused assets in cache (minutes)");
@@ -899,7 +901,7 @@ namespace Zettai
                 if (enableLog.Value)
                     MelonLogger.Msg($"[DL-{thisDl}] Instantiating item {type}: ID: '{assetId}', fileId: '{fileId}', owner: '{owner}'.");
                 GameObject parent;
-                GameObject instance;
+                GameObject instance = null;
                 var instanceList = new List<GameObject>(1);
                 if (type == DownloadTask.ObjectType.Avatar)
                 {
@@ -956,6 +958,10 @@ namespace Zettai
                     ActivateInstance(item, parent, instance);
                     SetPropData(propData, parent, instance, thisDl);
                 }
+                if (enablePerfStat.Value)
+                {
+                    MelonCoroutines.Start(item.PerfCheck(instance));
+                }
                 if (wait)
                 {
                     yield return null;
@@ -968,6 +974,7 @@ namespace Zettai
 
             }
         }
+
         internal static bool IsLocal(string name) => string.Equals(name, "_PLAYERLOCAL") || string.Equals(name, MetaPort.Instance.ownerId);
 
         private static CVRPlayerEntity FindPlayerParent(string owner, out GameObject parent, bool local)

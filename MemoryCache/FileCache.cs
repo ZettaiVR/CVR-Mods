@@ -39,6 +39,13 @@ namespace Zettai
         const int bufferSize = 16384;
         const double bufferSize1000Double = bufferSize * 1000d;
 
+        private static readonly Action WriteToDiskAction = new Action(WriteToDiskTask);
+        private static readonly Action ReadFromDiskAction = new Action(ReadFromDiskTask);
+        private static readonly Action DownloadAction = new Action(DownloadTask);
+        private static readonly Action DecryptAction = new Action(DecryptTask);
+        private static readonly Action HashByteArrayAction = new Action(HashByteArrayTask);
+        private static readonly Action VerifyAction = new Action(VerifyTask);
+
         internal static void StartTasks(int maxThreadCountDownload, int maxThreadCountDecrypt, int maxThreadCountVerify, int maxThreadCountHash) 
         {
             int diskWriteQueue = DiskWriteQueue.Count;
@@ -50,18 +57,18 @@ namespace Zettai
 
             if (diskWriteQueue > 0 && WriteToDiskInProgress == 0)
             {
-                Task.Run(WriteToDiskTask);
+                Task.Run(WriteToDiskAction);
             }
             if (diskReadQueue > 0 && ReadFromDiskInProgress == 0)
             {
-                Task.Run(ReadFromDiskTask);
+                Task.Run(ReadFromDiskAction);
             }
             if (downloadQueue > 0)
             {
                 int max = Math.Min(maxThreadCountDownload - DownloadsInProgress, downloadQueue);
                 for (int i = 0; i < max; i++)
                 {
-                    Task.Run(DownloadTask);
+                    Task.Run(DownloadAction);
                 }
             }
             if (decryptQueue > 0)
@@ -69,7 +76,7 @@ namespace Zettai
                 int max = Math.Min(maxThreadCountDecrypt - DecryptInProgress, decryptQueue);
                 for (int i = 0; i < max; i++)
                 {
-                    Task.Run(DecryptTask);
+                    Task.Run(DecryptAction);
                 }
             }
             if (hashQueue > 0)
@@ -77,7 +84,7 @@ namespace Zettai
                 int max = Math.Min(maxThreadCountHash - HashInProgress, hashQueue);
                 for (int i = 0; i < max; i++)
                 {
-                    Task.Run(HashByteArrayTask);
+                    Task.Run(HashByteArrayAction);
                 }
             }
             if (verifyQueue > 0)
@@ -85,7 +92,7 @@ namespace Zettai
                 int max = Math.Min(maxThreadCountVerify - VerifyInProgress, verifyQueue);
                 for (int i = 0; i < max; i++)
                 {
-                    Task.Run(VerifyTask);
+                    Task.Run(VerifyAction);
                 }
             }
         }

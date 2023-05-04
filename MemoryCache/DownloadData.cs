@@ -55,6 +55,7 @@ namespace Zettai
         public CancellationTokenSource cancellationToken = new CancellationTokenSource();
         internal long prevDownloaded = 0;
         internal int rateLimit = 0;
+        internal bool test;
 
         public DownloadData(string AssetId, byte[] RawData, byte[] FileKey)
         {
