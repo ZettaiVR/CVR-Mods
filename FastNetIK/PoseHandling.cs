@@ -71,7 +71,64 @@ namespace Zettai
                 }
             }
             GetTwists(boneElements, hd);
+            CalibrateTwists(boneElements, animator);
         }
+        /// <summary>
+        /// Dirty hack to get twist counter-rotation at twist value 1 to slerp it later
+        /// </summary>
+        /// <param name="boneElements"></param>
+        /// <param name="animator"></param>
+        private static void CalibrateTwists(BoneElement[] boneElements, Animator animator) 
+        {
+            var hph = new HumanPoseHandler(animator.avatar, animator.transform);
+            hph.GetHumanPose(ref humanPose);
+            var originalMuscles = humanPose.muscles;
+            humanPose.muscles = calibrationMuscles;
+
+            CalibrateTwists(boneElements, hph, animator, UpperTwistBones, UpperTwistMuscles);
+            CalibrateTwists(boneElements, hph, animator, LowerTwistBones, LowerTwistMuscles);
+
+            humanPose.muscles = originalMuscles;
+            hph.SetHumanPose(ref humanPose);
+        }
+        private static void CalibrateTwists(BoneElement[] boneElements, HumanPoseHandler hph, Animator animator, int[] boneIndicies, int[] muscleIndicies) 
+        {
+            SetTwists(calibrationMuscles, 0f, muscleIndicies);
+            hph.SetHumanPose(ref humanPose);
+            GetLocalRotations(boneElements, animator, boneIndicies);
+            SetTwists(calibrationMuscles, 1f, muscleIndicies);
+            hph.SetHumanPose(ref humanPose);
+            GetLocalRotationDifferences(boneElements, animator, boneIndicies);
+            SetTwists(calibrationMuscles, 0f, muscleIndicies);
+        }
+        private static void SetTwists(float[] muscles, float value, int[] indicies)
+        {
+            foreach (var item in indicies)
+                muscles[item] = value;
+        }
+        private static void GetLocalRotations(BoneElement[] boneElements, Animator animator, int[] indices) 
+        {
+            foreach (var item in indices)
+            {
+                var itemTransform = animator.GetBoneTransform((HumanBodyBones)item);
+                if (itemTransform)
+                    boneElements[item].twistQ = itemTransform.localRotation;
+                else
+                    boneElements[item].twistQ = Quaternion.identity;
+            }
+        }
+        private static void GetLocalRotationDifferences(BoneElement[] boneElements, Animator animator, int[] indices)
+        {
+            foreach (var item in indices)
+            {
+                var itemTransform = animator.GetBoneTransform((HumanBodyBones)item);
+                if (itemTransform)
+                    boneElements[item].twistQ = boneElements[item].twistQ * Quaternion.Inverse(itemTransform.localRotation);
+                else
+                    boneElements[item].twistQ = Quaternion.identity;
+            }
+        }
+
         private static void AddBone(BoneElement[] boneElements, IList<TransformInfoInit> transformInfos, Avatar avatar, HumanLimit humanLimit, int index, bool exists)
         {
             var boneData = boneElements[index];
@@ -120,40 +177,41 @@ namespace Zettai
             };
             boneElements[index] = boneData;
         }
-        private static readonly Quaternion lowerLegQ = Quaternion.Euler(270, 0, 0);  // Magic numbers derived from a few sample avatars with 0 bone rolls.
-        private static readonly Quaternion lowerArmQ = Quaternion.Euler(340, 0, 10);
         public static unsafe void FixBoneTwist(Quaternion[] rotations, BoneElement[] boneElements, float[] muscles)
         {
             fixed (float* musclesPtr = muscles)
             {
-                FixLimbChain(rotations, boneElements, musclesPtr, lowerArmQ, (int)HumanBodyBones.LeftUpperArm, (int)MuscleNamesEnum.LeftArmTwistInOut);
-                FixLimbChain(rotations, boneElements, musclesPtr, lowerArmQ, (int)HumanBodyBones.RightUpperArm, (int)MuscleNamesEnum.RightArmTwistInOut);
-                FixLimbChain(rotations, boneElements, musclesPtr, lowerLegQ, (int)HumanBodyBones.LeftUpperLeg, (int)MuscleNamesEnum.LeftUpperLegTwistInOut);
-                FixLimbChain(rotations, boneElements, musclesPtr, lowerLegQ, (int)HumanBodyBones.RightUpperLeg, (int)MuscleNamesEnum.RightUpperLegTwistInOut);
+                FixLimbChain(rotations, boneElements, musclesPtr, (int)HumanBodyBones.LeftUpperArm, (int)MuscleNamesEnum.LeftArmTwistInOut);
+                FixLimbChain(rotations, boneElements, musclesPtr, (int)HumanBodyBones.RightUpperArm, (int)MuscleNamesEnum.RightArmTwistInOut);
+                FixLimbChain(rotations, boneElements, musclesPtr, (int)HumanBodyBones.LeftUpperLeg, (int)MuscleNamesEnum.LeftUpperLegTwistInOut);
+                FixLimbChain(rotations, boneElements, musclesPtr, (int)HumanBodyBones.RightUpperLeg, (int)MuscleNamesEnum.RightUpperLegTwistInOut);
             }
         }
         public static unsafe void FixBoneTwist(Quaternion[] rotations, BoneElement[] boneElements, float* muscles)
         {
-            FixLimbChain(rotations, boneElements, muscles, lowerArmQ, (int)HumanBodyBones.LeftUpperArm, (int)MuscleNamesEnum.LeftArmTwistInOut);
-            FixLimbChain(rotations, boneElements, muscles, lowerArmQ, (int)HumanBodyBones.RightUpperArm, (int)MuscleNamesEnum.RightArmTwistInOut);
-            FixLimbChain(rotations, boneElements, muscles, lowerLegQ, (int)HumanBodyBones.LeftUpperLeg, (int)MuscleNamesEnum.LeftUpperLegTwistInOut);
-            FixLimbChain(rotations, boneElements, muscles, lowerLegQ, (int)HumanBodyBones.RightUpperLeg, (int)MuscleNamesEnum.RightUpperLegTwistInOut);
+            FixLimbChain(rotations, boneElements, muscles, (int)HumanBodyBones.LeftUpperArm, (int)MuscleNamesEnum.LeftArmTwistInOut);
+            FixLimbChain(rotations, boneElements, muscles, (int)HumanBodyBones.RightUpperArm, (int)MuscleNamesEnum.RightArmTwistInOut);
+            FixLimbChain(rotations, boneElements, muscles, (int)HumanBodyBones.LeftUpperLeg, (int)MuscleNamesEnum.LeftUpperLegTwistInOut);
+            FixLimbChain(rotations, boneElements, muscles, (int)HumanBodyBones.RightUpperLeg, (int)MuscleNamesEnum.RightUpperLegTwistInOut);
         }
-        private static unsafe void FixLimbChain(Quaternion[] rotations, BoneElement[] boneElements, float* muscles, Quaternion lowerQ, int startIndex, int startMuscle) 
+        private static unsafe void FixLimbChain(Quaternion[] rotations, BoneElement[] boneElements, float* muscles, int startIndex, int startMuscle) 
         {
             var boneElementUpper = boneElements[startIndex];
             var upperMuscle = muscles[startMuscle];
             var boneElementMiddle = boneElements[startIndex + 2];
             var middleMuscle = muscles[startMuscle + 2];
             var boneElementEnd = boneElements[startIndex + 4];
-            FixLimbs(rotations, upperMuscle, middleMuscle, boneElementUpper, boneElementMiddle, boneElementEnd, lowerQ, startIndex);
+            FixLimbs(rotations, upperMuscle, middleMuscle, boneElementUpper, boneElementMiddle, boneElementEnd, startIndex);
         }
         static void FixLimbs(Quaternion[] rotations, float upperMuscle, float middleMuscle, BoneElement boneElementUpper,
-             BoneElement boneElementMiddle, BoneElement boneElementEnd, Quaternion lowerQ, int startIndex)
+             BoneElement boneElementMiddle, BoneElement boneElementEnd, int startIndex)
         {
             var originalRotUpper = boneElementUpper.preQInv * rotations[startIndex] * boneElementUpper.postQ;
             var originalRotMiddle = boneElementMiddle.preQInv * rotations[startIndex + 2] * boneElementMiddle.postQ;
             var originalRotEnd = boneElementEnd.preQInv * rotations[startIndex + 4] * boneElementEnd.postQ;
+
+            var middleTwistCorrection = Quaternion.SlerpUnclamped(Quaternion.identity, boneElementMiddle.twistQ, -upperMuscle);
+            var endTwistCorrection = Quaternion.SlerpUnclamped(Quaternion.identity, boneElementEnd.twistQ, -middleMuscle);
 
             upperMuscle *= boneElementUpper.twistValue;
             var scale = upperMuscle >= 0 ? boneElementUpper.max.x : boneElementUpper.min.x;
@@ -164,12 +222,10 @@ namespace Zettai
             middleMuscle *= boneElementMiddle.twistValue;
             var scaleMiddle = middleMuscle >= 0 ? boneElementMiddle.max.x : boneElementMiddle.min.x;
             var angleMiddle = boneElementMiddle.sign.x * scaleMiddle * middleMuscle;
-            var twistMiddle = Quaternion.Euler(-angleMiddle, 0f, 0f); 
-            var correction = (boneElementMiddle.preQ * boneElementMiddle.postQInv * lowerQ).eulerAngles.y;
-            var signFlip = correction < 90f || correction > 270f ? 1f : -1f;
-            var newRotMiddle = Quaternion.Euler(0f, angleUpper * signFlip, 0f) * boneElementMiddle.preQ * originalRotMiddle * twistMiddle * boneElementMiddle.postQInv;
+            var twistMiddle = Quaternion.Euler(-angleMiddle, 0f, 0f);
 
-            var newRotEnd = Quaternion.Euler(0f, angleMiddle, 0f) * boneElementEnd.preQ * originalRotEnd * boneElementEnd.postQInv;
+            var newRotMiddle = middleTwistCorrection * boneElementMiddle.preQ * originalRotMiddle * twistMiddle * boneElementMiddle.postQInv;
+            var newRotEnd = endTwistCorrection * boneElementEnd.preQ * originalRotEnd * boneElementEnd.postQInv;
 
             rotations[startIndex] = newRotUpper;
             rotations[startIndex + 2] = newRotMiddle;
@@ -184,6 +240,14 @@ namespace Zettai
             boneElements[15].twistValue = boneElements[16].twistValue = 1f - hd.lowerArmTwist;
         }
 
+
+
+        private static readonly int[] UpperTwistBones = new int[] { 3, 4, 15, 16 };
+        private static readonly int[] LowerTwistBones = new int[] { 5, 6, 17, 18 };
+        private static readonly int[] UpperTwistMuscles = new int[] { 23, 31, 41, 50 };
+        private static readonly int[] LowerTwistMuscles = new int[] { 25, 33, 43, 52 };
+        private static HumanPose humanPose = new HumanPose();
+        private static readonly float[] calibrationMuscles = new float[95];
         private static List<string> boneNames;
         private const float Deg2RadHalf = Mathf.Deg2Rad * 0.5f;
         private const BindingFlags privateInstance = BindingFlags.NonPublic | BindingFlags.Instance;

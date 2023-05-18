@@ -10,7 +10,8 @@ namespace Zettai
     public class FastNetIkMod : MelonMod
     {
         private static MelonPreferences_Entry<bool> netIk;
-      //  private static MelonPreferences_Entry<bool> netIkTest;
+        private static MelonPreferences_Entry<bool> netIkDeserialize;
+        //  private static MelonPreferences_Entry<bool> netIkTest;
         private static MelonPreferences_Entry<float> netIkThumbsSplay;
         private static MelonPreferences_Entry<float> netIkIndexSplay;
         private static MelonPreferences_Entry<float> netIkMiddleSplay;
@@ -19,8 +20,9 @@ namespace Zettai
         public override void OnApplicationStart()
         {
             var category = MelonPreferences.CreateCategory("Zettai");
-            netIk = category.CreateEntry("FastNetIK", true, "Fast NetIK enable");
-     //       netIkTest = category.CreateEntry("netIkTest", true, "Fast NetIK test");
+            netIk = category.CreateEntry("FastNetIK", true, "FastNetIK enable");
+            netIkDeserialize = category.CreateEntry("FastNetIKdeserializer", true, "FastNetIK deserializer");
+            //       netIkTest = category.CreateEntry("netIkTest", true, "Fast NetIK test");
 
             netIkThumbsSplay = category.CreateEntry("netIkThumbsSplay", 0.3f, "Thumb spread (-1..1)");
             netIkIndexSplay = category.CreateEntry("netIkIndexSplay", 0f, "Index finger spread (-1..1)");
@@ -38,7 +40,8 @@ namespace Zettai
      //       Update.Test = netIkTest.Value;
         }
 
-     //   private void NetIkTest_OnValueChanged(bool arg1, bool arg2) => Update.Test = arg2;
+        //   private void NetIkTest_OnValueChanged(bool arg1, bool arg2) => Update.Test = arg2;
+      
 
         private void NetIkSplay_OnValueChanged(float arg1, float arg2)
         {
@@ -49,12 +52,48 @@ namespace Zettai
             var little = netIkLittleSplay.Value = Mathf.Clamp(netIkLittleSplay.Value, -1f, 1f);
             Update.UpdateFingerSpread(thumb, index, middle, ring, little);
         }
-              
+
+        [HarmonyPatch(typeof(ABI_RC.Core.Networking.Jobs.NetworkRootDataUpdate), nameof(ABI_RC.Core.Networking.Jobs.NetworkRootDataUpdate.Apply))]
+        class Network
+        {
+            static bool Prefix(DarkRift.Message message)
+            {
+                if (!netIk.Value || !netIkDeserialize.Value)
+                    return true;
+                ReadNetworkData.AddData(message);
+                return false;
+            }
+        }
+        [HarmonyPatch(typeof(ABI_RC.Systems.MovementSystem.MovementSystem), nameof(ABI_RC.Systems.MovementSystem.MovementSystem.Update))]
+        class MovementSystem
+        {
+            static void Prefix()
+            {
+                if (!netIk.Value || !netIkDeserialize.Value)
+                    return;
+                ReadNetworkData.StartProcessing();
+            }
+        }
+        public override void OnSceneWasLoaded(int buildIndex, string sceneName)
+        {
+            ReadNetworkData.ClearAllCachedData();
+        }
+
         public override void OnLateUpdate()
         {
             if (!netIk.Value)
                 return;
             Update.StartJobs();
+        }
+        [HarmonyPatch(typeof(PuppetMaster), nameof(PuppetMaster.Update))]
+        class PuppetMasterUpdate
+        {
+            static void Prefix()
+            {
+                if (!netIk.Value || !netIkDeserialize.Value)
+                    return;
+                ReadNetworkData.StopProcessing();
+            }
         }
         [HarmonyPatch(typeof(DbJobsColliderUpdate), nameof(DbJobsColliderUpdate.Update))]
         class OnUpdateEnd

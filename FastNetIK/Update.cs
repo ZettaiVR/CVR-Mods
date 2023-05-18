@@ -232,11 +232,11 @@ namespace Zettai
                     longPtr[i] = 0x2020202020202020;
                 }
             }
-            fixed (int* bufferPtr2 = writeBoneIndexArray)
-            fixed (int* bufferPtr3 = boneParentIndexArray)
+            fixed (int* writeBonePtr = writeBoneIndexArray)
+            fixed (int* boneParentPtr = boneParentIndexArray)
             {
-                var longPtr2 = (ulong*)bufferPtr2;
-                var longPtr3 = (ulong*)bufferPtr3;
+                var longPtr2 = (ulong*)writeBonePtr;
+                var longPtr3 = (ulong*)boneParentPtr;
                 var length = writeBoneIndexArray.Length / 2;
                 for (int i = 0; i < length; i++)
                 {
@@ -278,59 +278,60 @@ namespace Zettai
             }.Schedule(hipsArray, writeJobHandleRoot);
             writeJobHandle = new ApplyAllLocalTransforms(transformInfoInitArray).Schedule(transformsAccess, writeJobHandleHips);
         }
-        private static unsafe void UpdatePlayer(NetIkData netIkData, float time) //, float[] muscles)
+        private static void UpdatePlayer(NetIkData netIkData, float time)
         {
-            var muscles = stackalloc float[95];
             var puppetMaster = netIkData.puppetMaster;
             Vector3 rot;
             if (puppetMaster._lastUpdate != netIkData.updateCurr)
-            {
-                // new data in current slot
-                if (puppetMaster._lastBeforeUpdate == netIkData.updateCurr)
+                unsafe
                 {
-                    // move current to previous slot
-                    netIkData.dataPrev = netIkData.dataCurr;
-                    netIkData.updatePrev = netIkData.updateCurr;
-                    var tempRot = netIkData.rotations1;
-                    netIkData.rotations1 = netIkData.rotations2;
-                    netIkData.rotations2 = tempRot;
+                    var muscles = stackalloc float[95];
+                    // new data in current slot
+                    if (puppetMaster._lastBeforeUpdate == netIkData.updateCurr)
+                    {
+                        // move current to previous slot
+                        netIkData.dataPrev = netIkData.dataCurr;
+                        netIkData.updatePrev = netIkData.updateCurr;
+                        var tempRot = netIkData.rotations1;
+                        netIkData.rotations1 = netIkData.rotations2;
+                        netIkData.rotations2 = tempRot;
 
-                    netIkData.hipsRot2 = netIkData.hipsRot1;
-                    netIkData.rootRot2 = netIkData.rootRot1;
-                    netIkData.hipsPos2 = netIkData.hipsPos1;
-                    netIkData.rootPos2 = netIkData.rootPos1;
-                }
-                else
-                {
-                    netIkData.dataPrev = puppetMaster._playerAvatarMovementDataPast;
-                    netIkData.updatePrev = puppetMaster._lastBeforeUpdate;
+                        netIkData.hipsRot2 = netIkData.hipsRot1;
+                        netIkData.rootRot2 = netIkData.rootRot1;
+                        netIkData.hipsPos2 = netIkData.hipsPos1;
+                        netIkData.rootPos2 = netIkData.rootPos1;
+                    }
+                    else
+                    {
+                        netIkData.dataPrev = puppetMaster._playerAvatarMovementDataPast;
+                        netIkData.updatePrev = puppetMaster._lastBeforeUpdate;
 
-                    rot = netIkData.dataPrev.BodyRotation;
+                        rot = netIkData.dataPrev.BodyRotation;
+                        if (puppetMaster._isBlocked && !puppetMaster._isBlockedAlt)
+                            rot -= netIkData.dataPrev.RelativeHipRotation - puppetMaster.relativeHipRotation;
+                        netIkData.hipsRot2 = Quaternion.Euler(rot);
+                        netIkData.rootRot2 = Quaternion.Euler(netIkData.dataPrev.RootRotation);
+                        netIkData.hipsPos2 = netIkData.dataPrev.BodyPosition;
+                        netIkData.rootPos2 = netIkData.dataPrev.RootPosition;
+                        SetMuscleValues(muscles, netIkData.dataPrev);
+                        for (int i = 0; i < netIkData.rotations2.Length; i++)
+                            netIkData.rotations2[i] = PoseHandling.GetBoneRotation(netIkData.boneElements[i], muscles);
+                        PoseHandling.FixBoneTwist(netIkData.rotations2, netIkData.boneElements, muscles);
+                    }
+                    netIkData.updateCurr = puppetMaster._lastUpdate;
+                    netIkData.dataCurr = puppetMaster._playerAvatarMovementDataCurrent;
+                    rot = netIkData.dataCurr.BodyRotation;
                     if (puppetMaster._isBlocked && !puppetMaster._isBlockedAlt)
                         rot -= netIkData.dataPrev.RelativeHipRotation - puppetMaster.relativeHipRotation;
-                    netIkData.hipsRot2 = Quaternion.Euler(rot);
-                    netIkData.rootRot2 = Quaternion.Euler(netIkData.dataPrev.RootRotation);
-                    netIkData.hipsPos2 = netIkData.dataPrev.BodyPosition;
-                    netIkData.rootPos2 = netIkData.dataPrev.RootPosition;
-                    SetMuscleValues(muscles, netIkData.dataPrev);
-                    for (int i = 0; i < netIkData.rotations2.Length; i++)
-                        netIkData.rotations2[i] = PoseHandling.GetBoneRotation(netIkData.boneElements[i], muscles);
-                    PoseHandling.FixBoneTwist(netIkData.rotations2, netIkData.boneElements, muscles);
+                    netIkData.hipsRot1 = Quaternion.Euler(rot);
+                    netIkData.rootRot1 = Quaternion.Euler(netIkData.dataCurr.RootRotation);
+                    netIkData.hipsPos1 = netIkData.dataCurr.BodyPosition;
+                    netIkData.rootPos1 = netIkData.dataCurr.RootPosition;
+                    SetMuscleValues(muscles, netIkData.dataCurr);
+                    for (int i = 0; i < netIkData.rotations1.Length; i++)
+                        netIkData.rotations1[i] = PoseHandling.GetBoneRotation(netIkData.boneElements[i], muscles);
+                    PoseHandling.FixBoneTwist(netIkData.rotations1, netIkData.boneElements, muscles);
                 }
-                netIkData.updateCurr = puppetMaster._lastUpdate;
-                netIkData.dataCurr = puppetMaster._playerAvatarMovementDataCurrent;
-                rot = netIkData.dataCurr.BodyRotation;
-                if (puppetMaster._isBlocked && !puppetMaster._isBlockedAlt)
-                    rot -= netIkData.dataPrev.RelativeHipRotation - puppetMaster.relativeHipRotation;
-                netIkData.hipsRot1 = Quaternion.Euler(rot);
-                netIkData.rootRot1 = Quaternion.Euler(netIkData.dataCurr.RootRotation);
-                netIkData.hipsPos1 = netIkData.dataCurr.BodyPosition;
-                netIkData.rootPos1 = netIkData.dataCurr.RootPosition;
-                SetMuscleValues(muscles, netIkData.dataCurr);
-                for (int i = 0; i < netIkData.rotations1.Length; i++)
-                    netIkData.rotations1[i] = PoseHandling.GetBoneRotation(netIkData.boneElements[i], muscles);
-                PoseHandling.FixBoneTwist(netIkData.rotations1, netIkData.boneElements, muscles);
-            }
             // interpolate rotations
             var t = Mathf.Min((time - puppetMaster._lastUpdate) / puppetMaster.UpdateIntervalCalculated, 1f); // progress
             netIkData.hipsRotInterpolated = Quaternion.Slerp(netIkData.hipsRot2, netIkData.hipsRot1, t);
