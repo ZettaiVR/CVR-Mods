@@ -25,13 +25,13 @@ namespace Zettai
         }
         public static void CleanAvatarGameObjectLocal(GameObject avatar, Tags tags)
         {
-            CleanAvatarGameObject(avatar, 8, isFriend: true, isLocal: true, tags, disableAudio: false, forceShow: false, forceBlock: false, isVisible: true);
+            CleanAvatarGameObject(avatar, layer: 8, isFriend: true, isLocal: true, tags, disableAudio: false, forceShow: false, forceBlock: false, isVisible: true);
             PlayerSetup.Instance.avatarTags = tags.AvatarTags;
         }
 
         public static void CleanAvatarGameObjectNetwork(GameObject avatar, Tags tags, bool isFriend, bool forceShow, bool forceBlock, bool isVisible)
         {
-            CleanAvatarGameObject(avatar, 10, isFriend, isLocal: false, tags, disableAudio: false, forceShow, forceBlock, isVisible);
+            CleanAvatarGameObject(avatar, layer: 10, isFriend: isFriend, isLocal: false, tags, disableAudio: false, forceShow: forceShow, forceBlock: forceBlock, isVisible: isVisible);
         }
 
         public struct Permissions
@@ -74,11 +74,11 @@ namespace Zettai
 			private bool NudityTag { get => GetBool(PermissionFlags.NudityTag); set => SetBool(PermissionFlags.NudityTag, value); }
 			private bool GoreTag { get => GetBool(PermissionFlags.GoreTag); set => SetBool(PermissionFlags.GoreTag, value); }
 			public bool Audio => LoudAudio || LongRangeAudio || Music || DisableAudio;
-			public bool Hide => Nudity || Suggestive || FlashingColors || FlashingLights || ExtremelyBright || ScreenEffects 
-				|| Violence || Gore || Horror || Jumpscare || ExcessivelyHuge || ExcessivelySmall || AdminBanned || Incompatible 
-				|| (!MatureContentAllowed && (NudityTag || GoreTag)) || Visibility;
+            public bool Blocked => AdminBanned || Incompatible;
+            public bool NSFW => GoreTag || NudityTag;
 
-			public Permissions(Tags tags, bool disableAudio, bool isFriend, bool forceShow)
+
+            public Permissions(Tags tags, bool disableAudio, bool isFriend, bool forceShow)
 			{
 				Data = 0;
 				AdminBanned = tags.AdminBanned;
@@ -258,12 +258,12 @@ namespace Zettai
             var p = new Permissions(tags, disableAudio, isFriend, forceShow);
             var propComponent = asset.GetComponent<CVRSpawnable>();
 
-            bool hide = p.Hide && isVisible;
+            bool hide = !isVisible;
             if (forceShow)
                 hide = false;
-            if (forceBlock)
+            if (forceBlock || p.Blocked)
                 hide = true;
-            if (!MetaPort.Instance.matureContentAllowed && (tags.Nudity || tags.Gore))
+            if (!MetaPort.Instance.matureContentAllowed && p.NSFW)
                 hide = true;
 
             SanitizeGameObject(asset, hide ? AssetType.HiddenAvatar : AssetType.Avatar, out var allowedTypes);
@@ -310,14 +310,14 @@ namespace Zettai
 
             ApplyAdvancedTags(cvrAvatar.advancedTaggingList, ref p);
 
-            bool hide = p.Hide && isVisible;
+            bool hide = !isVisible;
             if (forceShow)
                 hide = false;
             if (forceBlock)
                 hide = true;
             if (!MetaPort.Instance.matureContentAllowed && (tags.Nudity || tags.Gore))
                 hide = true;
-
+           
             SanitizeGameObject(asset, hide ? AssetType.HiddenAvatar : AssetType.Avatar, out var allowedTypes);
             ApplyBlockedAvatar(asset, out CVRBlockedAvatarController cvrBlockedAvatarController);
             var animator = asset.GetComponent<Animator>();
@@ -404,7 +404,13 @@ namespace Zettai
         {
             //{ "","" },
         };
-
+        internal static void SetGameObjectLayerFromList(GameObject gameObject, int layer) 
+        {
+            transforms.Clear();
+            gameObject.GetComponentsInChildren(true, transforms);
+            SetGameObjectLayerFromList(layer);
+            transforms.Clear();
+        }
         private static void SetGameObjectLayerFromList(int layer) 
         {
             foreach (var item in transforms)

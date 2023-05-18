@@ -6,6 +6,7 @@ using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Unity.Jobs;
 
 namespace Zettai
 {
@@ -57,10 +58,12 @@ namespace Zettai
 
             if (diskWriteQueue > 0 && WriteToDiskInProgress == 0)
             {
+                //var _ = new WriteToDiskJob().Schedule();
                 Task.Run(WriteToDiskAction);
             }
             if (diskReadQueue > 0 && ReadFromDiskInProgress == 0)
             {
+                //var _ = new ReadFromDiskJob().Schedule();
                 Task.Run(ReadFromDiskAction);
             }
             if (downloadQueue > 0)
@@ -68,6 +71,7 @@ namespace Zettai
                 int max = Math.Min(maxThreadCountDownload - DownloadsInProgress, downloadQueue);
                 for (int i = 0; i < max; i++)
                 {
+                    //var _ = new DownloadJob().Schedule();
                     Task.Run(DownloadAction);
                 }
             }
@@ -76,7 +80,8 @@ namespace Zettai
                 int max = Math.Min(maxThreadCountDecrypt - DecryptInProgress, decryptQueue);
                 for (int i = 0; i < max; i++)
                 {
-                    Task.Run(DecryptAction);
+                    var _ = new DecryptJob().Schedule();
+                    //Task.Run(DecryptAction);
                 }
             }
             if (hashQueue > 0)
@@ -84,7 +89,8 @@ namespace Zettai
                 int max = Math.Min(maxThreadCountHash - HashInProgress, hashQueue);
                 for (int i = 0; i < max; i++)
                 {
-                    Task.Run(HashByteArrayAction);
+                    var _ = new HashByteArrayJob().Schedule();
+                    //Task.Run(HashByteArrayAction);
                 }
             }
             if (verifyQueue > 0)
@@ -92,6 +98,7 @@ namespace Zettai
                 int max = Math.Min(maxThreadCountVerify - VerifyInProgress, verifyQueue);
                 for (int i = 0; i < max; i++)
                 {
+                    //var _ = new VerifyJob().Schedule();
                     Task.Run(VerifyAction);
                 }
             }
@@ -128,6 +135,75 @@ namespace Zettai
         {
             var (path, extention, _) = names[type];
             return $"{path}\\{assetId}-{fileId}.{extention}";
+        }
+
+        struct DecryptJob : IJob
+        {
+            public void Execute()
+            {
+                var sw = new System.Diagnostics.Stopwatch();
+                var decrypt = new FastCVRDecrypt();
+                while (!DecryptQueue.IsEmpty)
+                    if (DecryptQueue.TryDequeue(out var result) || result == null)
+                        DecryptData(sw, decrypt, result);
+            }
+        }
+        struct HashByteArrayJob : IJob
+        {
+            public void Execute()
+            {
+                var sw = new System.Diagnostics.Stopwatch();
+                byte[] hashBuffer = BorrowByteArray1M();
+                while (!HashQueue.IsEmpty)
+                    if (HashQueue.TryDequeue(out var result) && result != null && !result.HashFailed)               
+                    HashMD5(sw, hashBuffer, result);                
+                ReturnByteArray1M(hashBuffer);
+            }
+        }
+
+        struct DownloadJob : IJob
+        {
+            public void Execute()
+            {
+                var sw = new System.Diagnostics.Stopwatch();
+                using (var _httpClient = new HttpClient())
+                    if (DownloadQueue.TryDequeue(out var result))
+                        Download(sw, _httpClient, result);
+            }
+        }
+        struct WriteToDiskJob : IJob
+        {
+            public void Execute()
+            {
+                Interlocked.Increment(ref WriteToDiskInProgress);
+                var sw = new System.Diagnostics.Stopwatch();
+                while (!DiskWriteQueue.IsEmpty)
+                    if (DiskWriteQueue.TryDequeue(out var result) && result != null)
+                        WriteToDisk(sw, result);              
+                Interlocked.Decrement(ref WriteToDiskInProgress);
+            }
+        }
+        struct ReadFromDiskJob : IJob
+        {
+            public void Execute()
+            {
+                Interlocked.Increment(ref ReadFromDiskInProgress);
+                var sw = new System.Diagnostics.Stopwatch();
+                while (!DiskReadQueue.IsEmpty)
+                    if (DiskReadQueue.TryDequeue(out var result) && result != null && !result.FileReadFailed)
+                        ReadFromDisk(sw, result);               
+                Interlocked.Decrement(ref ReadFromDiskInProgress);
+            }
+        }
+        struct VerifyJob : IJob
+        {
+            public void Execute()
+            {
+                var sw = new System.Diagnostics.Stopwatch();
+                while (!VerifyQueue.IsEmpty)
+                    if (VerifyQueue.TryDequeue(out var result) && result != null && !result.FileReadFailed)
+                        Verify(sw, result);               
+            }
         }
         private static void DecryptTask()
         {
@@ -402,7 +478,6 @@ namespace Zettai
                     result.calculatedHash = BitConverter.ToString(hashResult).Replace("-", "").ToLowerInvariant();
                     result.HashDone = true;
                 }
-
             }
             catch (Exception e)
             {

@@ -97,8 +97,7 @@ namespace Zettai
         }
         private static readonly WaitForSeconds waitFor0_1Seconds = new WaitForSeconds(0.1f);
         public IEnumerator GetSanitizedAsset(GameObject parent, DownloadTask.ObjectType type, List<GameObject> instancesList, Tags tags, string assetId, 
-            bool isLocal, bool friendsWith = false, bool isVisible = true,
-            bool forceShow = false, bool forceBlock = false)
+            bool isLocal, bool friendsWith = false, bool isVisible = true, bool forceShow = false, bool forceBlock = false)
         {
             yield return new WaitForEndOfFrame();
             if (instancesList == null || !OriginalItem || !parent)
@@ -118,7 +117,14 @@ namespace Zettai
             }
             if (ReadOnly)
             {
-                yield return instance;
+                Sanitizer.SetGameObjectLayerFromList(instance, isLocal ? 8 : 10);
+                if (!isLocal)                 
+                    CVRTools.PlaceHapticsTriggersAndPointers(instance);                 
+                CVRTools.GenerateDefaultPointer(instance, isLocal ? 8 : 10);
+                ABI_RC.Core.Util.AssetFiltering.AssetFilter.OnAvatarCleaned.Invoke(instance);
+                SetAudioMixer(instance);
+                AddInstance(instance);
+                yield break;
             }
             yield return new WaitForEndOfFrame();
             if (MemoryCache.enableOwnSanitizer.Value)
@@ -126,13 +132,13 @@ namespace Zettai
                 if (type == DownloadTask.ObjectType.Avatar)
                 {
                     if (isLocal)
-                        Sanitizer.CleanAvatarGameObjectLocal(instance, tags);
+                        Sanitizer.CleanAvatarGameObjectLocal(avatar: instance, tags: tags);
                     else
-                        Sanitizer.CleanAvatarGameObjectNetwork(instance, tags, friendsWith, forceShow, forceBlock, isVisible);
+                        Sanitizer.CleanAvatarGameObjectNetwork(avatar: instance, tags: tags, isFriend: friendsWith, forceShow: forceShow, forceBlock: forceBlock, isVisible: isVisible);
                 }
                 else if (type == DownloadTask.ObjectType.Prop) 
                 {
-                    Sanitizer.CleanPropGameObject(instance, tags, friendsWith, forceShow, forceBlock, isVisible);
+                    Sanitizer.CleanPropGameObject(prop: instance, tags: tags, isFriend: friendsWith, forceShow: forceShow, forceBlock: forceBlock, isVisible: isVisible);
                 }
             }
             else
