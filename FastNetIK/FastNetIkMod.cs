@@ -3,7 +3,7 @@ using HarmonyLib;
 using ABI_RC.Core.Player;
 using UnityEngine;
 
-[assembly: MelonInfo(typeof(Zettai.FastNetIkMod), "FastNetIkMod", "0.9", "Zettai")]
+[assembly: MelonInfo(typeof(Zettai.FastNetIkMod), "FastNetIkMod", "1.0", "Zettai")]
 [assembly: MelonGame(null, null)]
 namespace Zettai
 {

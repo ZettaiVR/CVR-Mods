@@ -17,7 +17,7 @@ using UnityEngine;
 using Zettai;
 using System.Threading;
 
-[assembly: MelonInfo(typeof(MemoryCache), "MemoryCache", "1.0", "Zettai")]
+[assembly: MelonInfo(typeof(MemoryCache), "MemoryCache", "1.1", "Zettai")]
 [assembly: MelonGame(null, null)]
 
 namespace Zettai
