@@ -459,7 +459,7 @@ namespace Zettai
                 {
                     result.HashFailed = true;
                     result.FileReadFailed = true;
-                    //      return;
+                    return;
                 }
                 using (var stream = new MemoryStream(result.rawData))
                 using (var md5Instance = System.Security.Cryptography.MD5.Create())
