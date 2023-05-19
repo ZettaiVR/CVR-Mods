@@ -2,6 +2,9 @@ ChilloutVR mods
 
 Not affiliated with or supported by ChilloutVR or Alpha Blend Interactive.
 
+FastNetIK
+Use the Unity jobs system for remote players' network IK, making it faster.
+
 FixDbLoadLag
 Fix the lag spike when loading avatars with dynamic bone components on it.
 
