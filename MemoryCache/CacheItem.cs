@@ -61,7 +61,7 @@ namespace Zettai
             age = now - lastRefRemoved;
             return !ReadOnly && InstanceCount == 0 && age > maxAge;
         }
-        public IEnumerator PerfCheck(GameObject instance)
+        public IEnumerator PerfCheck(GameObject instance, string thisDl)
         {
             if (Stats != null)
                 yield break;
@@ -69,6 +69,7 @@ namespace Zettai
             var stats = Stats = new AvatarInfo();
            // var instance = OriginalItem;
             Stats.avatarName = ToString();
+            stats.dlId = thisDl;
             if (!instance)
                 yield break;
 

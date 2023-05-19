@@ -36,6 +36,7 @@ namespace Zettai
         private static readonly HashSet<FileInfo> FilesToDelete = new HashSet<FileInfo>();
         private static volatile bool AbortThreads = false;
         private static bool InitDirectoryNamesDone = false;
+        private static int threadCount = Environment.ProcessorCount > 10 ? 2 : 1;
         const int sleepTime = 1;
         const int bufferSize = 16384;
         const double bufferSize1000Double = bufferSize * 1000d;
@@ -47,7 +48,7 @@ namespace Zettai
         private static readonly Action HashByteArrayAction = new Action(HashByteArrayTask);
         private static readonly Action VerifyAction = new Action(VerifyTask);
 
-        internal static void StartTasks(int maxThreadCountDownload, int maxThreadCountDecrypt, int maxThreadCountVerify, int maxThreadCountHash) 
+        internal static void StartTasks(int maxThreadCountDownload, int maxThreadCountVerify) 
         {
             int diskWriteQueue = DiskWriteQueue.Count;
             int diskReadQueue = DiskReadQueue.Count;
@@ -77,7 +78,7 @@ namespace Zettai
             }
             if (decryptQueue > 0)
             {
-                int max = Math.Min(maxThreadCountDecrypt - DecryptInProgress, decryptQueue);
+                int max = Math.Min(threadCount - DecryptInProgress, decryptQueue);
                 for (int i = 0; i < max; i++)
                 {
                     var _ = new DecryptJob().Schedule();
@@ -86,7 +87,7 @@ namespace Zettai
             }
             if (hashQueue > 0)
             {
-                int max = Math.Min(maxThreadCountHash - HashInProgress, hashQueue);
+                int max = Math.Min(threadCount - HashInProgress, hashQueue);
                 for (int i = 0; i < max; i++)
                 {
                     var _ = new HashByteArrayJob().Schedule();

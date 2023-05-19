@@ -79,6 +79,8 @@ namespace Zettai
         public ulong VRAM_Textures;
         //     public ulong VRAM_Meshes;
         public ulong VRAM_MeshesProfiler;
+        internal string dlId;
+
         //     public ulong VramBlendshapes;
         private static readonly StringBuilder stringBuilder = new StringBuilder();
         private readonly System.Diagnostics.Stopwatch stopwatch = new System.Diagnostics.Stopwatch();
@@ -105,6 +107,12 @@ namespace Zettai
             if (!string.IsNullOrEmpty(avatarName))
             {
                 stringBuilder.AppendLine();
+                if (!string.IsNullOrEmpty(dlId))
+                {
+                    stringBuilder.Append("[DL-");
+                    stringBuilder.Append(dlId);
+                    stringBuilder.Append("] ");
+                }
                 stringBuilder.Append("Avatar name/id: ");
                 stringBuilder.Append(avatarName); 
                 stringBuilder.AppendLine();

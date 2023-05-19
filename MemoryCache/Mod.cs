@@ -54,7 +54,6 @@ namespace Zettai
         private static readonly Dictionary<string, LoadTask> loadingTasks = new Dictionary<string, LoadTask>();
         private static readonly Guid BLOCKED_GUID = new Guid("B10CED00-F372-4ECE-B362-1F48E64D2F7E");
         private static readonly CacheKey BlockedKey = new CacheKey(BLOCKED_GUID, 0, 0);
-        private static int threadCount = 1;
         const string _BLOCKED_NAME = "Blocked";
         const string _BLOCKED_VERSION = "000000000000";
         const string _PROP_PATH = "assets/abi.cck/resources/cache/_cvrspawnable.prefab";
@@ -78,12 +77,11 @@ namespace Zettai
             maxRemoveCountEntry = category.CreateEntry("maxRemoveCountEntry", (byte)5, "Maximum number of assets to remove from cache per minute");
             loadTimeoutSecondsEntry = category.CreateEntry("loadTimeoutSecondsEntry", (ushort)60, "Loat timeout (0 = disable)");
             enableMod.OnValueChanged += EnableMod_OnValueChanged;
-            threadCount = Environment.ProcessorCount > 10 ? 2 : 1;
         }
         public override void OnLateUpdate()
         {
             UpdateLoadingAvatars();
-            FileCache.StartTasks(downloadThreads.Value, threadCount, verifyThreads.Value, threadCount);
+            FileCache.StartTasks(downloadThreads.Value, verifyThreads.Value);
             verifierEnabled = MetaPort.Instance?.settings.GetSettingsBool("ExperimentalBundleVerifierEnabled", false) ?? false;
             publicOnly = MetaPort.Instance?.settings.GetSettingsBool("ExperimentalBundleVerifierPublicsOnly", false) ?? false;
             isPublic = string.Equals(MetaPort.Instance?.CurrentInstancePrivacy, "public", StringComparison.OrdinalIgnoreCase);
@@ -989,7 +987,7 @@ namespace Zettai
                 }
                 if (enablePerfStat.Value)
                 {
-                    MelonCoroutines.Start(item.PerfCheck(instance));
+                    MelonCoroutines.Start(item.PerfCheck(instance, thisDl));
                 }
                 if (!string.IsNullOrEmpty(blockedMessage))
                 {
