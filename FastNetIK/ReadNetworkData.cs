@@ -143,7 +143,6 @@ namespace Zettai
             [FieldOffset(280)] public uint RightHandDownUp;
             [FieldOffset(284)] public uint RightHandInOut;
             [FieldOffset(288)] public byte IndexUseIndividualFingers;
-            [FieldOffset(289)] public byte CameraEnabled;
             public void CopyToClass(PlayerAvatarMovementData data)
             {
                 data.DeviceType = (PlayerAvatarMovementData.UsingDeviceType)((ShortSwap)DeviceType).shortData;
@@ -224,7 +223,6 @@ namespace Zettai
                 data.RightHandDownUp = SwapFloat(RightHandDownUp);
                 data.RightHandInOut = SwapFloat(RightHandInOut);
                 data.IndexUseIndividualFingers = false;
-                data.CameraEnabled = CameraEnabled == 1;
             }
         }
 
@@ -277,7 +275,6 @@ namespace Zettai
                 data.RightRingSpread = SwapFloat(RightRingSpread);
                 data.RightPinkyCurl = SwapFloat(RightPinkyCurl);
                 data.RightPinkySpread = SwapFloat(RightPinkySpread);
-                data.CameraEnabled = CameraEnabled == 1;
             }
         }
 
@@ -429,6 +426,7 @@ namespace Zettai
                     fingers.CopyToClass(input);
                     dataStart += PlayerAvatarMovementDataInputFingerOnly.size;
                 }
+                input.CameraEnabled = bufferPtr[dataStart++] != 0;
                 if (input.CameraEnabled)
                 {
                     uint* floats = (uint*)(bufferPtr + dataStart);
