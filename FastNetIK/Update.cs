@@ -26,7 +26,6 @@ namespace Zettai
         private static float RingSplay = 0f;
         private static float PinkySplay = 0f;
         
-   //     internal static volatile bool Test = false;
         private static readonly byte[] boneFlagArray = new byte[256];
         private static readonly int[] writeBoneIndexArray = new int[256];
         private static readonly int[] boneParentIndexArray = new int[256];

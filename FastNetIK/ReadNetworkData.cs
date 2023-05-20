@@ -8,16 +8,44 @@ namespace Zettai
 {
     class ReadNetworkData
     {
-
         private static readonly List<IkDataPair> dataCache = new List<IkDataPair>();
         private static JobHandle DeserializeHandle;
         private static JobHandle ClearDoneDataHandle;
         private static bool started = false;
+      
+        /// <summary>
+        /// Swap endianness of a float and makes sure it's value is within reason for numbers at most 8.5 billion
+        /// </summary>
+        /// <param name="value">The float as an uint</param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static unsafe float SwapFloat(uint value)
         {
-            uint intValue = *&value;
+            uint intValue = value;
             intValue = ((intValue & 0x000000ff) << 24) | ((intValue & 0x0000ff00) << 8) | ((intValue & 0x00ff0000) >> 8) | ((intValue & 0xff000000) >> 24);
+            var abs = intValue & 0x7FFFFFFF;
+            //         NaN or inf            > 1                     > 8 589 934 080
+            if (abs >= 0x7F800000 || ((abs & 0x40000000) > 0 && (abs & 0x30000000) > 0))
+            {
+                return 0f;
+            }
+            return *(float*)&intValue;
+        }
+
+        /// <summary>
+        /// Swap endianness of a float and makes sure it's value is within reason for numbers smaller than 65536
+        /// </summary>
+        /// <param name="value">The float as an uint</param>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static unsafe float SwapSmallFloat(uint value)
+        {
+            uint intValue = value;
+            intValue = ((intValue & 0x000000ff) << 24) | ((intValue & 0x0000ff00) << 8) | ((intValue & 0x00ff0000) >> 8) | ((intValue & 0xff000000) >> 24);
+            var abs = intValue & 0x7FFFFFFF;
+            //         NaN or inf            > 1                     > 65535
+            if (abs >= 0x7F800000 || ((abs & 0x40000000) > 0 && (abs & 0x38000000) > 0))
+            {
+                return 0f;
+            }
             return *(float*)&intValue;
         }
         [StructLayout(LayoutKind.Explicit)]
@@ -149,79 +177,79 @@ namespace Zettai
                 data.RootPosition.x = SwapFloat(RootPositionX);
                 data.RootPosition.y = SwapFloat(RootPositionY);
                 data.RootPosition.z = SwapFloat(RootPositionZ);
-                data.RootRotation.x = SwapFloat(RootRotationX);
-                data.RootRotation.y = SwapFloat(RootRotationY);
-                data.RootRotation.z = SwapFloat(RootRotationZ);
+                data.RootRotation.x = SwapSmallFloat(RootRotationX);
+                data.RootRotation.y = SwapSmallFloat(RootRotationY);
+                data.RootRotation.z = SwapSmallFloat(RootRotationZ);
                 data.BodyPosition.x = SwapFloat(BodyPositionX);
                 data.BodyPosition.y = SwapFloat(BodyPositionY);
                 data.BodyPosition.z = SwapFloat(BodyPositionZ);
-                data.BodyRotation.x = SwapFloat(BodyRotationX);
-                data.BodyRotation.y = SwapFloat(BodyRotationY);
-                data.BodyRotation.z = SwapFloat(BodyRotationZ);
-                data.RelativeHipRotation.x = SwapFloat(RelativeHipRotationX);
-                data.RelativeHipRotation.y = SwapFloat(RelativeHipRotationY);
-                data.RelativeHipRotation.z = SwapFloat(RelativeHipRotationZ);
-                data.AnimatorMovementX = SwapFloat(AnimatorMovementX);
-                data.AnimatorMovementY = SwapFloat(AnimatorMovementY);
+                data.BodyRotation.x = SwapSmallFloat(BodyRotationX);
+                data.BodyRotation.y = SwapSmallFloat(BodyRotationY);
+                data.BodyRotation.z = SwapSmallFloat(BodyRotationZ);
+                data.RelativeHipRotation.x = SwapSmallFloat(RelativeHipRotationX);
+                data.RelativeHipRotation.y = SwapSmallFloat(RelativeHipRotationY);
+                data.RelativeHipRotation.z = SwapSmallFloat(RelativeHipRotationZ);
+                data.AnimatorMovementX = SwapSmallFloat(AnimatorMovementX);
+                data.AnimatorMovementY = SwapSmallFloat(AnimatorMovementY);
                 data.AnimatorGrounded = AnimatorGrounded == 1;
-                data.AnimatorEmote = SwapFloat(AnimatorEmote);
+                data.AnimatorEmote = SwapSmallFloat(AnimatorEmote);
                 data.AnimatorCancelEmote = AnimatorCancelEmote == 1;
-                data.AnimatorGestureLeft = SwapFloat(AnimatorGestureLeft);
-                data.AnimatorGestureRight = SwapFloat(AnimatorGestureRight);
-                data.AnimatorToggle = SwapFloat(AnimatorToggle);
+                data.AnimatorGestureLeft = SwapSmallFloat(AnimatorGestureLeft);
+                data.AnimatorGestureRight = SwapSmallFloat(AnimatorGestureRight);
+                data.AnimatorToggle = SwapSmallFloat(AnimatorToggle);
                 data.AnimatorSitting = AnimatorSitting == 1;
                 data.AnimatorCrouching = AnimatorCrouching == 1;
                 data.AnimatorFlying = AnimatorFlying == 1;
                 data.AnimatorProne = AnimatorProne == 1;
-                data.SpineFrontBack = SwapFloat(SpineFrontBack);
-                data.SpineLeftRight = SwapFloat(SpineLeftRight);
-                data.SpineTwistLeftRight = SwapFloat(SpineTwistLeftRight);
-                data.ChestFrontBack = SwapFloat(ChestFrontBack);
-                data.ChestLeftRight = SwapFloat(ChestLeftRight);
-                data.ChestTwistLeftRight = SwapFloat(ChestTwistLeftRight);
-                data.UpperChestFrontBack = SwapFloat(UpperChestFrontBack);
-                data.UpperChestLeftRight = SwapFloat(UpperChestLeftRight);
-                data.UpperChestTwistLeftRight = SwapFloat(UpperChestTwistLeftRight);
-                data.NeckNodDownUp = SwapFloat(NeckNodDownUp);
-                data.NeckTiltLeftRight = SwapFloat(NeckTiltLeftRight);
-                data.NeckTurnLeftRight = SwapFloat(NeckTurnLeftRight);
-                data.HeadNodDownUp = SwapFloat(HeadNodDownUp);
-                data.HeadTiltLeftRight = SwapFloat(HeadTiltLeftRight);
-                data.HeadTurnLeftRight = SwapFloat(HeadTurnLeftRight);
-                data.LeftUpperLegFrontBack = SwapFloat(LeftUpperLegFrontBack);
-                data.LeftUpperLegInOut = SwapFloat(LeftUpperLegInOut);
-                data.LeftUpperLegTwistInOut = SwapFloat(LeftUpperLegTwistInOut);
-                data.LeftLowerLegStretch = SwapFloat(LeftLowerLegStretch);
-                data.LeftLowerLegTwistInOut = SwapFloat(LeftLowerLegTwistInOut);
-                data.LeftFootUpDown = SwapFloat(LeftFootUpDown);
-                data.LeftFootTwistInOut = SwapFloat(LeftFootTwistInOut);
-                data.LeftToesUpDown = SwapFloat(LeftToesUpDown);
-                data.RightUpperLegFrontBack = SwapFloat(RightUpperLegFrontBack);
-                data.RightUpperLegInOut = SwapFloat(RightUpperLegInOut);
-                data.RightUpperLegTwistInOut = SwapFloat(RightUpperLegTwistInOut);
-                data.RightLowerLegStretch = SwapFloat(RightLowerLegStretch);
-                data.RightLowerLegTwistInOut = SwapFloat(RightLowerLegTwistInOut);
-                data.RightFootUpDown = SwapFloat(RightFootUpDown);
-                data.RightFootTwistInOut = SwapFloat(RightFootTwistInOut);
-                data.RightToesUpDown = SwapFloat(RightToesUpDown);
-                data.LeftShoulderDownUp = SwapFloat(LeftShoulderDownUp);
-                data.LeftShoulderFrontBack = SwapFloat(LeftShoulderFrontBack);
-                data.LeftArmDownUp = SwapFloat(LeftArmDownUp);
-                data.LeftArmFrontBack = SwapFloat(LeftArmFrontBack);
-                data.LeftArmTwistInOut = SwapFloat(LeftArmTwistInOut);
-                data.LeftForearmStretch = SwapFloat(LeftForearmStretch);
-                data.LeftForearmTwistInOut = SwapFloat(LeftForearmTwistInOut);
-                data.LeftHandDownUp = SwapFloat(LeftHandDownUp);
-                data.LeftHandInOut = SwapFloat(LeftHandInOut);
-                data.RightShoulderDownUp = SwapFloat(RightShoulderDownUp);
-                data.RightShoulderFrontBack = SwapFloat(RightShoulderFrontBack);
-                data.RightArmDownUp = SwapFloat(RightArmDownUp);
-                data.RightArmFrontBack = SwapFloat(RightArmFrontBack);
-                data.RightArmTwistInOut = SwapFloat(RightArmTwistInOut);
-                data.RightForearmStretch = SwapFloat(RightForearmStretch);
-                data.RightForearmTwistInOut = SwapFloat(RightForearmTwistInOut);
-                data.RightHandDownUp = SwapFloat(RightHandDownUp);
-                data.RightHandInOut = SwapFloat(RightHandInOut);
+                data.SpineFrontBack = SwapSmallFloat(SpineFrontBack);
+                data.SpineLeftRight = SwapSmallFloat(SpineLeftRight);
+                data.SpineTwistLeftRight = SwapSmallFloat(SpineTwistLeftRight);
+                data.ChestFrontBack = SwapSmallFloat(ChestFrontBack);
+                data.ChestLeftRight = SwapSmallFloat(ChestLeftRight);
+                data.ChestTwistLeftRight = SwapSmallFloat(ChestTwistLeftRight);
+                data.UpperChestFrontBack = SwapSmallFloat(UpperChestFrontBack);
+                data.UpperChestLeftRight = SwapSmallFloat(UpperChestLeftRight);
+                data.UpperChestTwistLeftRight = SwapSmallFloat(UpperChestTwistLeftRight);
+                data.NeckNodDownUp = SwapSmallFloat(NeckNodDownUp);
+                data.NeckTiltLeftRight = SwapSmallFloat(NeckTiltLeftRight);
+                data.NeckTurnLeftRight = SwapSmallFloat(NeckTurnLeftRight);
+                data.HeadNodDownUp = SwapSmallFloat(HeadNodDownUp);
+                data.HeadTiltLeftRight = SwapSmallFloat(HeadTiltLeftRight);
+                data.HeadTurnLeftRight = SwapSmallFloat(HeadTurnLeftRight);
+                data.LeftUpperLegFrontBack = SwapSmallFloat(LeftUpperLegFrontBack);
+                data.LeftUpperLegInOut = SwapSmallFloat(LeftUpperLegInOut);
+                data.LeftUpperLegTwistInOut = SwapSmallFloat(LeftUpperLegTwistInOut);
+                data.LeftLowerLegStretch = SwapSmallFloat(LeftLowerLegStretch);
+                data.LeftLowerLegTwistInOut = SwapSmallFloat(LeftLowerLegTwistInOut);
+                data.LeftFootUpDown = SwapSmallFloat(LeftFootUpDown);
+                data.LeftFootTwistInOut = SwapSmallFloat(LeftFootTwistInOut);
+                data.LeftToesUpDown = SwapSmallFloat(LeftToesUpDown);
+                data.RightUpperLegFrontBack = SwapSmallFloat(RightUpperLegFrontBack);
+                data.RightUpperLegInOut = SwapSmallFloat(RightUpperLegInOut);
+                data.RightUpperLegTwistInOut = SwapSmallFloat(RightUpperLegTwistInOut);
+                data.RightLowerLegStretch = SwapSmallFloat(RightLowerLegStretch);
+                data.RightLowerLegTwistInOut = SwapSmallFloat(RightLowerLegTwistInOut);
+                data.RightFootUpDown = SwapSmallFloat(RightFootUpDown);
+                data.RightFootTwistInOut = SwapSmallFloat(RightFootTwistInOut);
+                data.RightToesUpDown = SwapSmallFloat(RightToesUpDown);
+                data.LeftShoulderDownUp = SwapSmallFloat(LeftShoulderDownUp);
+                data.LeftShoulderFrontBack = SwapSmallFloat(LeftShoulderFrontBack);
+                data.LeftArmDownUp = SwapSmallFloat(LeftArmDownUp);
+                data.LeftArmFrontBack = SwapSmallFloat(LeftArmFrontBack);
+                data.LeftArmTwistInOut = SwapSmallFloat(LeftArmTwistInOut);
+                data.LeftForearmStretch = SwapSmallFloat(LeftForearmStretch);
+                data.LeftForearmTwistInOut = SwapSmallFloat(LeftForearmTwistInOut);
+                data.LeftHandDownUp = SwapSmallFloat(LeftHandDownUp);
+                data.LeftHandInOut = SwapSmallFloat(LeftHandInOut);
+                data.RightShoulderDownUp = SwapSmallFloat(RightShoulderDownUp);
+                data.RightShoulderFrontBack = SwapSmallFloat(RightShoulderFrontBack);
+                data.RightArmDownUp = SwapSmallFloat(RightArmDownUp);
+                data.RightArmFrontBack = SwapSmallFloat(RightArmFrontBack);
+                data.RightArmTwistInOut = SwapSmallFloat(RightArmTwistInOut);
+                data.RightForearmStretch = SwapSmallFloat(RightForearmStretch);
+                data.RightForearmTwistInOut = SwapSmallFloat(RightForearmTwistInOut);
+                data.RightHandDownUp = SwapSmallFloat(RightHandDownUp);
+                data.RightHandInOut = SwapSmallFloat(RightHandInOut);
                 data.IndexUseIndividualFingers = false;
             }
         }
@@ -251,42 +279,78 @@ namespace Zettai
             [FieldOffset(68)] public uint RightRingSpread;
             [FieldOffset(72)] public uint RightPinkyCurl;
             [FieldOffset(76)] public uint RightPinkySpread;
-            [FieldOffset(80)] public byte CameraEnabled;
             public void CopyToClass(PlayerAvatarMovementData data)
             {
                 data.IndexUseIndividualFingers = true;
-                data.LeftThumbCurl = SwapFloat(LeftThumbCurl);
-                data.LeftThumbSpread = SwapFloat(LeftThumbSpread);
-                data.LeftIndexCurl = SwapFloat(LeftIndexCurl);
-                data.LeftIndexSpread = SwapFloat(LeftIndexSpread);
-                data.LeftMiddleCurl = SwapFloat(LeftMiddleCurl);
-                data.LeftMiddleSpread = SwapFloat(LeftMiddleSpread);
-                data.LeftRingCurl = SwapFloat(LeftRingCurl);
-                data.LeftRingSpread = SwapFloat(LeftRingSpread);
-                data.LeftPinkyCurl = SwapFloat(LeftPinkyCurl);
-                data.LeftPinkySpread = SwapFloat(LeftPinkySpread);
-                data.RightThumbCurl = SwapFloat(RightThumbCurl);
-                data.RightThumbSpread = SwapFloat(RightThumbSpread);
-                data.RightIndexCurl = SwapFloat(RightIndexCurl);
-                data.RightIndexSpread = SwapFloat(RightIndexSpread);
-                data.RightMiddleCurl = SwapFloat(RightMiddleCurl);
-                data.RightMiddleSpread = SwapFloat(RightMiddleSpread);
-                data.RightRingCurl = SwapFloat(RightRingCurl);
-                data.RightRingSpread = SwapFloat(RightRingSpread);
-                data.RightPinkyCurl = SwapFloat(RightPinkyCurl);
-                data.RightPinkySpread = SwapFloat(RightPinkySpread);
+                data.LeftThumbCurl = SwapSmallFloat(LeftThumbCurl);
+                data.LeftThumbSpread = SwapSmallFloat(LeftThumbSpread);
+                data.LeftIndexCurl = SwapSmallFloat(LeftIndexCurl);
+                data.LeftIndexSpread = SwapSmallFloat(LeftIndexSpread);
+                data.LeftMiddleCurl = SwapSmallFloat(LeftMiddleCurl);
+                data.LeftMiddleSpread = SwapSmallFloat(LeftMiddleSpread);
+                data.LeftRingCurl = SwapSmallFloat(LeftRingCurl);
+                data.LeftRingSpread = SwapSmallFloat(LeftRingSpread);
+                data.LeftPinkyCurl = SwapSmallFloat(LeftPinkyCurl);
+                data.LeftPinkySpread = SwapSmallFloat(LeftPinkySpread);
+                data.RightThumbCurl = SwapSmallFloat(RightThumbCurl);
+                data.RightThumbSpread = SwapSmallFloat(RightThumbSpread);
+                data.RightIndexCurl = SwapSmallFloat(RightIndexCurl);
+                data.RightIndexSpread = SwapSmallFloat(RightIndexSpread);
+                data.RightMiddleCurl = SwapSmallFloat(RightMiddleCurl);
+                data.RightMiddleSpread = SwapSmallFloat(RightMiddleSpread);
+                data.RightRingCurl = SwapSmallFloat(RightRingCurl);
+                data.RightRingSpread = SwapSmallFloat(RightRingSpread);
+                data.RightPinkyCurl = SwapSmallFloat(RightPinkyCurl);
+                data.RightPinkySpread = SwapSmallFloat(RightPinkySpread);
+            }
+        }
+
+        [StructLayout(LayoutKind.Explicit, Pack = 1)]
+        private struct CameraData
+        {
+            public static readonly int size = Marshal.SizeOf(typeof(CameraData));
+
+            [FieldOffset(00)] public uint posX;
+            [FieldOffset(04)] public uint posY;
+            [FieldOffset(08)] public uint posZ;
+            [FieldOffset(12)] public uint rotX;
+            [FieldOffset(16)] public uint rotY;
+            [FieldOffset(20)] public uint rotZ;
+            public void CopyToClass(PlayerAvatarMovementData data)
+            {
+                data.CameraPosition.x = SwapFloat(posX);
+                data.CameraPosition.y = SwapFloat(posY);
+                data.CameraPosition.z = SwapFloat(posZ);
+                data.CameraRotation.x = SwapSmallFloat(rotX);
+                data.CameraRotation.y = SwapSmallFloat(rotY);
+                data.CameraRotation.z = SwapSmallFloat(rotZ);
+            }
+        }
+        [StructLayout(LayoutKind.Explicit, Pack = 1)]
+        private struct EyeTrackingPositionData
+        {
+            public static readonly int size = Marshal.SizeOf(typeof(EyeTrackingPositionData));
+
+            [FieldOffset(00)] public uint posX;
+            [FieldOffset(04)] public uint posY;
+            [FieldOffset(08)] public uint posZ;
+            public void CopyToClass(PlayerAvatarMovementData data)
+            {
+                data.EyeTrackingPosition.x = SwapFloat(posX);
+                data.EyeTrackingPosition.y = SwapFloat(posY);
+                data.EyeTrackingPosition.z = SwapFloat(posZ);
             }
         }
 
         [StructLayout(LayoutKind.Explicit)]
-        private struct BytesToFloatInt
+        private struct BytesToInt
         {
             [FieldOffset(0)] public int intValue;
             [FieldOffset(0)] public byte b0;
             [FieldOffset(1)] public byte b1;
             [FieldOffset(2)] public byte b2;
             [FieldOffset(3)] public byte b3;
-            public BytesToFloatInt(byte[] data, int start)
+            public BytesToInt(byte[] data, int start)
             {
                 intValue = 0;
                 b3 = data[start];
@@ -409,7 +473,7 @@ namespace Zettai
         {
             if (buffer == null || input == null)
                 return false;
-            var idLength = new BytesToFloatInt(buffer, 3);
+            var idLength = new BytesToInt(buffer, 3);
             var dataStart = idLength.intValue + 7; // 79
             if (buffer.Length < PlayerAvatarMovementDataInputNoFinger.size + dataStart + 3)
                 return false;
@@ -426,26 +490,19 @@ namespace Zettai
                     fingers.CopyToClass(input);
                     dataStart += PlayerAvatarMovementDataInputFingerOnly.size;
                 }
-                input.CameraEnabled = bufferPtr[dataStart++] != 0;
-                if (input.CameraEnabled)
+                bool cameraEnabled = input.CameraEnabled = bufferPtr[dataStart++] != 0;
+                if (cameraEnabled)
                 {
-                    uint* floats = (uint*)(bufferPtr + dataStart);
-                    input.CameraPosition.x = SwapFloat(floats[0]);
-                    input.CameraPosition.y = SwapFloat(floats[1]);
-                    input.CameraPosition.z = SwapFloat(floats[2]);
-                    input.CameraRotation.x = SwapFloat(floats[3]);
-                    input.CameraRotation.y = SwapFloat(floats[4]);
-                    input.CameraRotation.z = SwapFloat(floats[5]);
-                    dataStart += 24;
+                    CameraData cam = *(CameraData*)(bufferPtr + dataStart);
+                    cam.CopyToClass(input);
+                    dataStart += CameraData.size;
                 }
                 bool eyeTracking = input.EyeTrackingOverride = bufferPtr[dataStart++] != 0;
                 if (eyeTracking)
                 {
-                    uint* floats = (uint*)(bufferPtr + dataStart);
-                    input.EyeTrackingPosition.x = SwapFloat(floats[0]);
-                    input.EyeTrackingPosition.y = SwapFloat(floats[1]);
-                    input.EyeTrackingPosition.z = SwapFloat(floats[2]);
-                    dataStart += 12;
+                    EyeTrackingPositionData eyePos = *(EyeTrackingPositionData*)(bufferPtr + dataStart);
+                    eyePos.CopyToClass(input);
+                    dataStart += EyeTrackingPositionData.size;
                 }
                 bool eyeBlink = input.EyeBlinkingOverride = bufferPtr[dataStart++] != 0;
                 if (eyeBlink)
@@ -461,7 +518,7 @@ namespace Zettai
                     uint* floats = (uint*)(bufferPtr + dataStart);
                     for (int i = 0; i < 37; i++)
                     {
-                        input.FaceTrackingData[i] = SwapFloat(floats[i]);
+                        input.FaceTrackingData[i] = SwapSmallFloat(floats[i]);
                     }
                 }
             }
