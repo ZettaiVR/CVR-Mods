@@ -18,6 +18,7 @@ namespace Zettai
         public static JobHandle writeJobHandleRoot;
         public static JobHandle writeJobHandleHips;
         private static bool rebuildTransformAccess = true;
+        internal static bool useFingerSpread;
         private static bool initDone = false;
         private static float ThumbsSplay = 0.3f;
         private static float IndexSplay = 0f;
@@ -432,11 +433,32 @@ namespace Zettai
             muscles[83] = muscles[85] = muscles[86] = 0.7f + -1.7f * data.RightMiddleCurl;
             muscles[87] = muscles[89] = muscles[90] = 0.7f + -1.7f * data.RightRingCurl;
             muscles[91] = muscles[93] = muscles[94] = 0.7f + -1.7f * data.RightPinkyCurl;
-            muscles[56] = muscles[76] = ThumbsSplay;
-            muscles[60] = muscles[80] = IndexSplay;
-            muscles[64] = muscles[84] = MiddleSplay;
-            muscles[68] = muscles[88] = RingSplay;
-            muscles[72] = muscles[92] = PinkySplay;
+
+
+            float leftThumbSpread = data.LeftThumbSpread;
+
+            if (!useFingerSpread || leftThumbSpread < 5f)
+            {
+                muscles[56] = muscles[76] = ThumbsSplay;
+                muscles[60] = muscles[80] = IndexSplay;
+                muscles[64] = muscles[84] = MiddleSplay;
+                muscles[68] = muscles[88] = RingSplay;
+                muscles[72] = muscles[92] = PinkySplay;
+                return;
+            }
+
+            // leftThumbSpread is offset by 10 so we can recognize if it's sent by this mod
+
+            muscles[56] = leftThumbSpread - 10f;
+            muscles[60] = data.LeftIndexSpread;
+            muscles[64] = data.LeftMiddleSpread;
+            muscles[68] = data.LeftRingSpread;
+            muscles[72] = data.LeftPinkySpread;
+            muscles[76] = data.RightThumbSpread;
+            muscles[80] = data.RightIndexSpread;
+            muscles[84] = data.RightMiddleSpread;
+            muscles[88] = data.RightRingSpread;
+            muscles[92] = data.RightPinkySpread;
         }
     }
 }

@@ -3,7 +3,7 @@ using HarmonyLib;
 using ABI_RC.Core.Player;
 using UnityEngine;
 
-[assembly: MelonInfo(typeof(Zettai.FastNetIkMod), "FastNetIkMod", "1.0", "Zettai")]
+[assembly: MelonInfo(typeof(Zettai.FastNetIkMod), "FastNetIkMod", "1.1", "Zettai")]
 [assembly: MelonGame(null, null)]
 namespace Zettai
 {
@@ -11,7 +11,7 @@ namespace Zettai
     {
         private static MelonPreferences_Entry<bool> netIk;
         private static MelonPreferences_Entry<bool> netIkDeserialize;
-        //  private static MelonPreferences_Entry<bool> netIkTest;
+        private static MelonPreferences_Entry<bool> netIkSerializeSpread;
         private static MelonPreferences_Entry<float> netIkThumbsSplay;
         private static MelonPreferences_Entry<float> netIkIndexSplay;
         private static MelonPreferences_Entry<float> netIkMiddleSplay;
@@ -22,7 +22,7 @@ namespace Zettai
             var category = MelonPreferences.CreateCategory("Zettai");
             netIk = category.CreateEntry("FastNetIK", true, "FastNetIK enable");
             netIkDeserialize = category.CreateEntry("FastNetIKdeserializer", true, "FastNetIK deserializer");
-            //       netIkTest = category.CreateEntry("netIkTest", true, "Fast NetIK test");
+            netIkSerializeSpread = category.CreateEntry("FastNetIkSerializeSpread", true, "FastNetIK send finger spread");
 
             netIkThumbsSplay = category.CreateEntry("netIkThumbsSplay", 0.3f, "Thumb spread (-1..1)");
             netIkIndexSplay = category.CreateEntry("netIkIndexSplay", 0f, "Index finger spread (-1..1)");
@@ -35,12 +35,8 @@ namespace Zettai
             netIkMiddleSplay.OnValueChanged += NetIkSplay_OnValueChanged;
             netIkRingSplay.OnValueChanged += NetIkSplay_OnValueChanged;
             netIkLittleSplay.OnValueChanged += NetIkSplay_OnValueChanged;
-      //      netIkTest.OnValueChanged += NetIkTest_OnValueChanged;
             Setup.Init(); 
-     //       Update.Test = netIkTest.Value;
         }
-
-        //   private void NetIkTest_OnValueChanged(bool arg1, bool arg2) => Update.Test = arg2;
       
 
         private void NetIkSplay_OnValueChanged(float arg1, float arg2)
@@ -53,9 +49,12 @@ namespace Zettai
             Update.UpdateFingerSpread(thumb, index, middle, ring, little);
         }
 
-        [HarmonyPatch(typeof(ABI_RC.Core.Networking.Jobs.NetworkRootDataUpdate), nameof(ABI_RC.Core.Networking.Jobs.NetworkRootDataUpdate.Apply))]
+
+        [HarmonyPatch(typeof(ABI_RC.Core.Networking.Jobs.NetworkRootDataUpdate))]
         class Network
         {
+            [HarmonyPatch(nameof(ABI_RC.Core.Networking.Jobs.NetworkRootDataUpdate.Apply))]
+            [HarmonyPrefix]
             static bool Prefix(DarkRift.Message message)
             {
                 if (!netIk.Value || !netIkDeserialize.Value)
@@ -64,6 +63,52 @@ namespace Zettai
                 return false;
             }
         }
+
+        [HarmonyPatch(typeof(PlayerAvatarMovementData))]
+        class SendFingerSpread
+        {
+            [HarmonyPatch(nameof(PlayerAvatarMovementData.SetDataFromAnimator))]
+            [HarmonyPostfix]
+            static void Postfix(PlayerAvatarMovementData __instance)
+            {
+                if (!netIk.Value || !netIkSerializeSpread.Value || !ABI_RC.Systems.IK.IKSystem.Instance.FingerSystem.controlActive)
+                    return;
+
+                var muscles = ABI_RC.Systems.IK.IKSystem.Instance.humanPose.muscles;
+                if (muscles == null)
+                    return;
+
+                __instance.LeftThumbSpread    = muscles[56] + 10f;
+                __instance.LeftIndexSpread    = muscles[60];
+                __instance.LeftMiddleSpread   = muscles[64];
+                __instance.LeftRingSpread     = muscles[68];
+                __instance.LeftPinkySpread    = muscles[72];
+                __instance.RightThumbSpread   = muscles[76];
+                __instance.RightIndexSpread   = muscles[80];
+                __instance.RightMiddleSpread  = muscles[84];
+                __instance.RightRingSpread    = muscles[88];
+                __instance.RightPinkySpread   = muscles[92];
+            }
+            [HarmonyPatch(nameof(PlayerAvatarMovementData.CopyDataFrom))]
+            [HarmonyPostfix]
+            static void PostfixCopy(PlayerAvatarMovementData __instance, PlayerAvatarMovementData source)
+            {
+                if (!netIk.Value || !netIkSerializeSpread.Value)
+                    return;
+
+                __instance.LeftIndexSpread = source.LeftIndexSpread;
+                __instance.LeftMiddleSpread = source.LeftMiddleSpread;
+                __instance.LeftRingSpread = source.LeftRingSpread;
+                __instance.LeftPinkySpread = source.LeftPinkySpread;
+                __instance.RightThumbSpread = source.RightThumbSpread;
+                __instance.LeftThumbSpread = source.LeftThumbSpread;
+                __instance.RightIndexSpread = source.RightIndexSpread;
+                __instance.RightMiddleSpread = source.RightMiddleSpread;
+                __instance.RightPinkySpread = source.RightPinkySpread;
+                __instance.RightRingSpread = source.RightRingSpread;
+            }
+        }
+
         [HarmonyPatch(typeof(ABI_RC.Systems.MovementSystem.MovementSystem), nameof(ABI_RC.Systems.MovementSystem.MovementSystem.Update))]
         class MovementSystem
         {
@@ -71,6 +116,7 @@ namespace Zettai
             {
                 if (!netIk.Value || !netIkDeserialize.Value)
                     return;
+                Update.useFingerSpread = netIkSerializeSpread.Value;
                 ReadNetworkData.StartProcessing();
             }
         }
