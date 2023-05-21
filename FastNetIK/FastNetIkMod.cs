@@ -46,7 +46,7 @@ namespace Zettai
             var middle = netIkMiddleSplay.Value = Mathf.Clamp(netIkMiddleSplay.Value, -1f, 1f);
             var ring = netIkRingSplay.Value = Mathf.Clamp(netIkRingSplay.Value, -1f, 1f);
             var little = netIkLittleSplay.Value = Mathf.Clamp(netIkLittleSplay.Value, -1f, 1f);
-            Update.UpdateFingerSpread(thumb, index, middle, ring, little);
+            NetIkUpdate.UpdateFingerSpread(thumb, index, middle, ring, little);
         }
 
 
@@ -114,10 +114,12 @@ namespace Zettai
         {
             static void Prefix()
             {
-                if (!netIk.Value || !netIkDeserialize.Value)
+                if (!netIk.Value)
                     return;
-                Update.useFingerSpread = netIkSerializeSpread.Value;
+                NetIkUpdate.useFingerSpread = netIkSerializeSpread.Value;
                 ReadNetworkData.StartProcessing();
+                NetIkUpdate.StartProcessing();
+                Unity.Jobs.JobHandle.ScheduleBatchedJobs();
             }
         }
         public override void OnSceneWasLoaded(int buildIndex, string sceneName)
@@ -129,26 +131,16 @@ namespace Zettai
         {
             if (!netIk.Value)
                 return;
-            Update.StartJobs();
+            NetIkUpdate.StartWriteJobs();
         }
         [HarmonyPatch(typeof(PuppetMaster), nameof(PuppetMaster.Update))]
         class PuppetMasterUpdate
         {
             static void Prefix()
             {
-                if (!netIk.Value || !netIkDeserialize.Value)
-                    return;
-                ReadNetworkData.StopProcessing();
-            }
-        }
-        [HarmonyPatch(typeof(DbJobsColliderUpdate), nameof(DbJobsColliderUpdate.Update))]
-        class OnUpdateEnd
-        {
-            static void Postfix()
-            {
                 if (!netIk.Value)
                     return;
-                Update.StartProcessing();
+                ReadNetworkData.CompleteProcessing();
             }
         }
         [HarmonyPatch(typeof(PuppetMaster), nameof(PuppetMaster.AvatarInstantiated))]
@@ -169,7 +161,7 @@ namespace Zettai
         {
             static void Postfix(PuppetMaster __instance)
             {
-                Update.RemovePlayer(__instance);
+                NetIkUpdate.RemovePlayer(__instance);
             }
         }
         [HarmonyPatch(typeof(PlayerAvatarMovementData), nameof(PlayerAvatarMovementData.WriteDataToAnimatorLerped))]
@@ -179,8 +171,6 @@ namespace Zettai
             {
                 if (!netIk.Value || animator == null || previousData == null)
                     return true;
-                if (animator == null || animator.avatar == null || !animator.avatar.isHuman)
-                    return false;
                 return false;
             }
         }

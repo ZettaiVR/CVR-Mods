@@ -1,6 +1,5 @@
 ﻿using ABI_RC.Core.Player;
 using MagicaCloth;
-using MelonLoader;
 using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Jobs;
@@ -10,7 +9,7 @@ using UnityEngine.Jobs;
 
 namespace Zettai
 {
-    class Update
+    class NetIkUpdate
     {
         internal static JobHandle processingJobHandle;
         internal static JobHandle copyJobHandle;
@@ -108,10 +107,10 @@ namespace Zettai
             playersToProcessList.Clear();
             playersToProcessList.AddRange(allPlayers);
             RebuildArraysIfNeeded();
-            processingJobHandle = new NetIkProcessingJob(Time.time).Schedule(playersToProcessList.Count, 1);
+            processingJobHandle = new NetIkProcessingJob(Time.time).Schedule(playersToProcessList.Count, 1, ReadNetworkData.ClearDoneDataHandle);
             copyJobHandle = new NetIkCopyJob().Schedule(processingJobHandle);
         }
-    
+       
         private static void RemovePlayers()
         {
             foreach (var player in allPlayers)
@@ -142,11 +141,11 @@ namespace Zettai
             }
             allPlayers.Remove(player);
         }
-        public static void StartJobs()
+        public static void StartWriteJobs()
         {
             if (!initDone)
                 RebuildArrays();
-            ScheduleJobs();
+            ScheduleWriteJobs();
         }
         private static void RebuildArraysIfNeeded()
         {
@@ -254,7 +253,7 @@ namespace Zettai
                 boneUnityPhysicsList = new NativeArray<short>(boneUnityPhysicsArray, Allocator.Persistent);
             RebuildArrays();
         }
-        private static void ScheduleJobs()
+        private static void ScheduleWriteJobs()
         {
             writeJobHandleRoot = new PhysicsManagerBoneData.WriteBontToTransformJob2()
             {
