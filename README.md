@@ -9,7 +9,7 @@ Adds the option to send finger spread information, but that requires the receivi
 ## FixDbLoadLag
 Fix the lag spike when loading avatars with dynamic bone components on it.
 
-## FixLegCalibration
+## ~~FixLegCalibration~~
 Fix leg calibration issues in full body tracking. No longer needed as it's implemented in the game, kept here for reference.
 
 ## MemoryCache
