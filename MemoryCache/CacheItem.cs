@@ -179,7 +179,8 @@ namespace Zettai
             bool hidden = !mustShow && (!isVisible || !ABI_RC.Core.Util.AssetFiltering.AssetFilter.GetPropFilterStatus(ref empty, assetId, tags.PropTags, isOwnOrFriend, wasForceShown, wasForceHidden));
             if (hidden)
             {
-                MelonLoader.MelonLogger.Error($"Hidden by content filter: '{empty}', Asset ID: {assetId}, target: {target}, spawned by: {spawnedBy}, isVisible: {isVisible}, isOwnOrFriend: {isOwnOrFriend}, wasForceShown: {wasForceShown}, wasForceHidden: {wasForceHidden}', tags: {tags}.");
+                if (MemoryCache.enableLog.Value)
+                    MelonLoader.MelonLogger.Msg($"Hidden by content filter: '{empty}', Asset ID: {assetId}, target: {target}, spawned by: {spawnedBy}, isVisible: {isVisible}, isOwnOrFriend: {isOwnOrFriend}, wasForceShown: {wasForceShown}, wasForceHidden: {wasForceHidden}', tags: {tags}.");
                 ABI_RC.Core.Util.AssetFiltering.AssetFilter.FilterProp(assetId, parent, tags.PropTags,isFriend: isOwnOrFriend, isVisible: isVisible, forceShow: wasForceShown, forceBlock: wasForceHidden);
                 yield break;
             }
