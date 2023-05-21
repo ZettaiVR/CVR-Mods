@@ -23,11 +23,9 @@ namespace Zettai
             uint intValue = value;
             intValue = ((intValue & 0x000000ff) << 24) | ((intValue & 0x0000ff00) << 8) | ((intValue & 0x00ff0000) >> 8) | ((intValue & 0xff000000) >> 24);
             var abs = intValue & 0x7FFFFFFF;
-            //         NaN or inf            > 1                     > 8 589 934 080
-            if (abs >= 0x7F800000 || ((abs & 0x40000000) > 0 && (abs & 0x30000000) > 0))
-            {
+            //  NaN or inf or > 8 589 934 080
+            if (abs >= 0x50000000)
                 return 0f;
-            }
             return *(float*)&intValue;
         }
 
@@ -41,11 +39,9 @@ namespace Zettai
             uint intValue = value;
             intValue = ((intValue & 0x000000ff) << 24) | ((intValue & 0x0000ff00) << 8) | ((intValue & 0x00ff0000) >> 8) | ((intValue & 0xff000000) >> 24);
             var abs = intValue & 0x7FFFFFFF;
-            //         NaN or inf            > 1                     > 65535
-            if (abs >= 0x7F800000 || ((abs & 0x40000000) > 0 && (abs & 0x38000000) > 0))
-            {
+            // NaN or inf or > 65 535
+            if (abs >= 0x48000000)
                 return 0f;
-            }
             return *(float*)&intValue;
         }
         [StructLayout(LayoutKind.Explicit)]
@@ -92,7 +88,7 @@ namespace Zettai
         [StructLayout(LayoutKind.Explicit, Pack = 1)]
         private struct PlayerAvatarMovementDataInputNoFinger
         {
-            public static readonly int size = Marshal.SizeOf(typeof(PlayerAvatarMovementDataInputNoFinger)); //290;
+            public static readonly int size = Marshal.SizeOf(typeof(PlayerAvatarMovementDataInputNoFinger)); // 288;
             [FieldOffset(0)] public short DeviceType;
             [FieldOffset(2)] public uint RootPositionX;
             [FieldOffset(6)] public uint RootPositionY;
@@ -170,7 +166,6 @@ namespace Zettai
             [FieldOffset(276)] public uint RightForearmTwistInOut;
             [FieldOffset(280)] public uint RightHandDownUp;
             [FieldOffset(284)] public uint RightHandInOut;
-            [FieldOffset(288)] public byte IndexUseIndividualFingers;
             public void CopyToClass(PlayerAvatarMovementData data)
             {
                 data.DeviceType = (PlayerAvatarMovementData.UsingDeviceType)((ShortSwap)DeviceType).shortData;
@@ -477,13 +472,13 @@ namespace Zettai
             var dataStart = idLength.intValue + 7; // 79
             if (buffer.Length < PlayerAvatarMovementDataInputNoFinger.size + dataStart + 3)
                 return false;
-            bool fingerDataPresent = buffer[288 + dataStart] != 0;
 
             fixed (byte* bufferPtr = buffer)
             {
                 PlayerAvatarMovementDataInputNoFinger baseData = *(PlayerAvatarMovementDataInputNoFinger*)(bufferPtr + dataStart);
                 baseData.CopyToClass(input);
                 dataStart += PlayerAvatarMovementDataInputNoFinger.size;
+                bool fingerDataPresent = bufferPtr[dataStart++] != 0;
                 if (fingerDataPresent)
                 {
                     PlayerAvatarMovementDataInputFingerOnly fingers = *(PlayerAvatarMovementDataInputFingerOnly*)(bufferPtr + dataStart);
