@@ -2,6 +2,10 @@
 
 Not affiliated with or supported by ChilloutVR or Alpha Blend Interactive.
 
+## ConstraintsFixer
+some mods can trigger an error that results in constraints not executing at the right time, and not following IK. 
+This fixes that.
+
 ## FastNetIK
 Use the Unity jobs system for remote players' network IK, making it faster.
 Adds the option to send finger spread information, but that requires the receiving side to have the mod too, and to enable both the "deserializer" and the "send finger spread" option.
