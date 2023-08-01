@@ -6,6 +6,12 @@ Not affiliated with or supported by ChilloutVR or Alpha Blend Interactive.
 some mods can trigger an error that results in constraints not executing at the right time, and not following IK. 
 This fixes that.
 
+## RyzenAffinity
+Sets the affinity of the game to the first CCX for AMD Ryzen CPUs. Doesn't do anything if any other CPU is used.
+
+
+# Not updated CVR mods
+
 ## FastNetIK
 Use the Unity jobs system for remote players' network IK, making it faster.
 Adds the option to send finger spread information, but that requires the receiving side to have the mod too, and to enable both the "deserializer" and the "send finger spread" option.
