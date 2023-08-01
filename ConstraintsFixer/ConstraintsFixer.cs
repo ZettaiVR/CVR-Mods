@@ -1,9 +1,9 @@
 ﻿using MelonLoader;
+using System;
 using System.Collections.Generic;
-using Zettai;
-using System.Linq;
 using UnityEngine.LowLevel;
 using UnityEngine.PlayerLoop;
+using Zettai;
 
 [assembly: MelonInfo(typeof(ConstraintsFixer), "Constraints Fixer", "1.0", "Zettai")]
 [assembly: MelonGame(null, null)]
@@ -17,38 +17,49 @@ namespace Zettai
         }
         public static void PlayerLoopTweaker()
         {
-            PlayerLoopSystem currentPlayerLoop = PlayerLoop.GetCurrentPlayerLoop();
-            int num = -1;
-            int num2 = -1;
+            var currentPlayerLoop = PlayerLoop.GetCurrentPlayerLoop();
+            int preLateUpdateIndex = -1;
+            int postLateUpdateIndex = -1;
             for (int i = 0; i < currentPlayerLoop.subSystemList.Length; i++)
             {
                 if (currentPlayerLoop.subSystemList[i].type == typeof(PreLateUpdate))
                 {
-                    num = i;
+                    preLateUpdateIndex = i;
+                    continue;
                 }
                 if (currentPlayerLoop.subSystemList[i].type == typeof(PostLateUpdate))
                 {
-                    num2 = i;
+                    postLateUpdateIndex = i;
                 }
             }
-            PlayerLoopSystem playerLoopSystem = currentPlayerLoop.subSystemList[num];
-            PlayerLoopSystem playerLoopSystem2 = currentPlayerLoop.subSystemList[num2];
-            List<PlayerLoopSystem> list = new List<PlayerLoopSystem>(playerLoopSystem.subSystemList);
-            List<PlayerLoopSystem> list2 = new List<PlayerLoopSystem>(playerLoopSystem2.subSystemList);
-            PlayerLoopSystem playerLoopSystem3 = list.FirstOrDefault((PlayerLoopSystem x) => x.type == typeof(PreLateUpdate.ConstraintManagerUpdate));
-            PlayerLoopSystem playerLoopSystem4 = list.FirstOrDefault((PlayerLoopSystem x) => x.type == typeof(PreLateUpdate.ParticleSystemBeginUpdateAll));
-            PlayerLoopSystem playerLoopSystem5 = list.FirstOrDefault((PlayerLoopSystem x) => x.type == typeof(PreLateUpdate.EndGraphicsJobsAfterScriptUpdate));
-            list2.Insert(0, playerLoopSystem3);
-            list2.Insert(1, playerLoopSystem4);
-            list2.Insert(2, playerLoopSystem5);
-            list.Remove(playerLoopSystem3);
-            list.Remove(playerLoopSystem4);
-            list.Remove(playerLoopSystem5);
-            playerLoopSystem.subSystemList = list.ToArray();
-            playerLoopSystem2.subSystemList = list2.ToArray();
-            currentPlayerLoop.subSystemList[num] = playerLoopSystem;
-            currentPlayerLoop.subSystemList[num2] = playerLoopSystem2;
+            if (preLateUpdateIndex == -1 || postLateUpdateIndex == -1)
+                return;
+
+            var preLateUpdate = currentPlayerLoop.subSystemList[preLateUpdateIndex];
+            var postLateUpdate = currentPlayerLoop.subSystemList[postLateUpdateIndex];
+            var preLateUpdateList = new List<PlayerLoopSystem>(preLateUpdate.subSystemList);
+            var postLateUpdateList = new List<PlayerLoopSystem>(postLateUpdate.subSystemList);
+
+            SwapSystem(preLateUpdateList, postLateUpdateList, typeof(PreLateUpdate.EndGraphicsJobsAfterScriptUpdate));
+            SwapSystem(preLateUpdateList, postLateUpdateList, typeof(PreLateUpdate.ParticleSystemBeginUpdateAll));
+            SwapSystem(preLateUpdateList, postLateUpdateList, typeof(PreLateUpdate.ConstraintManagerUpdate));
+
+            preLateUpdate.subSystemList = preLateUpdateList.ToArray();
+            postLateUpdate.subSystemList = postLateUpdateList.ToArray();
+            currentPlayerLoop.subSystemList[preLateUpdateIndex] = preLateUpdate;
+            currentPlayerLoop.subSystemList[postLateUpdateIndex] = postLateUpdate;
             PlayerLoop.SetPlayerLoop(currentPlayerLoop);
+        }
+
+        private static void SwapSystem(List<PlayerLoopSystem> preLateUpdateList, List<PlayerLoopSystem> postLateUpdateList, Type type)
+        {
+            int index = preLateUpdateList.FindIndex((PlayerLoopSystem x) => x.type == type);
+            if (index >= 0)
+            {
+                var system = preLateUpdateList[index];
+                postLateUpdateList.Insert(1, system);
+                preLateUpdateList.Remove(system);
+            }
         }
     }
 }
