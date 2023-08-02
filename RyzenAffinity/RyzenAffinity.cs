@@ -65,16 +65,17 @@ namespace Zettai
             i = (i & 0x33333333) + ((i >> 2) & 0x33333333);
             return (int)((((i + (i >> 4)) & 0x0F0F0F0F) * 0x01010101) >> 24);
         }
-
-        private static readonly List<string> threeCores = new List<string>()
-        {
+        // data from https://en.wikipedia.org/wiki/List_of_AMD_Ryzen_processors
+        private static readonly List<string> threeCores = new List<string>() {
            "AMD Ryzen 5 1600",
+           "AMD Ryzen 5 PRO 1600",
            "AMD Ryzen 5 2600",
            "AMD Ryzen 5 3500",
            "AMD Ryzen 5 3600",
            "AMD Ryzen 9 3900",
-           "AMD Ryzen 5 46",
-           "AMD Ryzen 5 4500U",
+           "AMD Ryzen 5 4500",
+           "AMD Ryzen 5 4600",
+           "AMD Ryzen 5 4680",
            "AMD Ryzen 5 5500U",
            "AMD Ryzen Threadripper 1920X",
            "AMD Ryzen Threadripper 2920X",
@@ -82,8 +83,8 @@ namespace Zettai
            "AMD Ryzen Threadripper 3960X",
            "AMD Ryzen Threadripper PRO 3945WX",
         };
-        private static readonly List<string> fourCores = new List<string>()
- {
+        private static readonly List<string> fourCores = new List<string>() {
+               "AMD Ryzen 7 PRO 1700",
                "AMD Ryzen 7 1700",
                "AMD Ryzen 7 1800",
                "AMD Ryzen 7 2700",
@@ -92,11 +93,9 @@ namespace Zettai
                "AMD Ryzen 9 3950",
                "AMD Ryzen 7 4700",
                "AMD Ryzen 7 4800",
-               "AMD Ryzen 7 4980U",
                "AMD Ryzen 9 4900H",
+               "AMD Ryzen 7 4980U",
                "AMD Ryzen 7 5700U",
-               "AMD Ryzen 3 7330U",
-               "AMD Ryzen 3 7335U",
                "AMD Ryzen Threadripper 1900X",
                "AMD Ryzen Threadripper 1950X",
                "AMD Ryzen Threadripper 2950X",
@@ -106,21 +105,24 @@ namespace Zettai
                "AMD Ryzen Threadripper PRO 3955WX",
                "AMD Ryzen Threadripper PRO 3975WX",
                "AMD Ryzen Threadripper PRO 3995WX",
- };
+        };
         private static readonly List<string> sixCores = new List<string>() {
                "AMD Ryzen 9 5900",
+               "AMD Ryzen 9 PRO 5945",
                "AMD Ryzen 9 7900",
+               "AMD Ryzen 9 PRO 7945",
                "AMD Ryzen 9 7845HX",
                "AMD Ryzen Threadripper PRO 5945WX",
                "AMD Ryzen Threadripper PRO 5965WX",
-                    };
+        };
         private static readonly List<string> eightCores = new List<string>() {
                "AMD Ryzen 9 5950X",
                "AMD Ryzen 9 7950",
+               "AMD Ryzen 9 7945HX",
                "AMD Ryzen Threadripper PRO 5955WX",
                "AMD Ryzen Threadripper PRO 5975WX",
                "AMD Ryzen Threadripper PRO 5995WX",
-                };
+        };
         
         private static readonly KeyValuePair<uint, List<string>>[] CpuNames = new KeyValuePair<uint, List<string>>[]
         {
