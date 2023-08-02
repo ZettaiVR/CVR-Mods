@@ -19,19 +19,24 @@ namespace Zettai
             if (!dof.w)
                 return Quaternion.identity;
             var id = boneElement.muscleIds;
-            var rawMuscleValue = new Vector3(
-                dof.x ? muscles[id.x] : 0f, 
-                dof.y ? muscles[id.y] : 0f,
-                dof.z ? muscles[id.z] : 0f);
-            var scale = new Vector3(
-                rawMuscleValue.x >= 0f ? boneElement.max.x : boneElement.min.x,
-                rawMuscleValue.y >= 0f ? boneElement.max.y : boneElement.min.y,
-                rawMuscleValue.z >= 0f ? boneElement.max.z : boneElement.min.z);
-            var _angle = boneElement.center + (boneElement.sign * scale * rawMuscleValue);  // boneElement.center is pure guess based on docs.
-            var twist = Quaternion.Euler(_angle.x, 0f, 0f);                                 // I couldn't find a way to add an offset with the humanoid rig import.
-            var YZrot = Quaternion.Euler(0f, _angle.y, _angle.z);   // Thanks to knah for figuring this out.
+            //  var rawMuscleValue = new Vector3(
+            float rawX = dof.x ? muscles[id.x] : 0f;
+            float rawY = dof.y ? muscles[id.y] : 0f;
+            float rawZ = dof.z ? muscles[id.z] : 0f;
+            //  var scale = new Vector3(
+            float scaleX = rawX >= 0f ? boneElement.max.x : boneElement.min.x;
+            float scaleY = rawY >= 0f ? boneElement.max.y : boneElement.min.y;
+            float scaleZ = rawZ >= 0f ? boneElement.max.z : boneElement.min.z;
+
+            float angleX = (scaleX * rawX) + boneElement.center.x;
+            float angleY = (scaleY * rawY) + boneElement.center.y;
+            float angleZ = (scaleZ * rawZ) + boneElement.center.z;
+          //  var _angle = boneElement.center + (boneElement.sign * scale * rawMuscleValue);  // boneElement.center is pure guess based on docs.
+
+            var twist = Quaternion.Euler(angleX, 0f, 0f);                                 // I couldn't find a way to add an offset with the humanoid rig import.
+            var YZrot = Quaternion.Euler(0f, angleY, angleZ);   // Thanks to knah for figuring this out.
             //var rotY = Mathf.Tan(Deg2RadHalf * _angle.y);         // Mathf.Tan results the same values as HumanPoseHandler, math.tan or Math.Tan will differ slightly.
-            //var rotZ = Mathf.Tan(Deg2RadHalf * _angle.z);
+            //var rotZ = Mathf.Tan(Deg2RadHalf * _angle.z);         // it gets the same result as the Quaternion.Euler way, but that's easier to read or understand
             //var YZrot = new Quaternion(0f, rotY, rotZ, 1f);       // I don't know why this works
             YZrot.x = 0f;
             YZrot.Normalize();
@@ -39,7 +44,22 @@ namespace Zettai
             var result = boneElement.preQ * YZrot * boneElement.postQInv;
             return result;
         }
-        public static void CalibrateMuscles(Animator animator, BoneElement[] boneElements, IList<TransformInfoInit> transformInfos)
+
+        public static Quaternion GetGenericRotationOfBone(BoneElement boneElement, Quaternion localRotation) 
+        {
+            if (!boneElement.BoneExists)
+                return Quaternion.identity;
+            return boneElement.preQInv * localRotation * boneElement.postQ;
+        }
+
+        public static Quaternion GetLocalRotationOfBone(BoneElement boneElement, Quaternion rotation)
+        {
+            if (!boneElement.BoneExists)
+                return Quaternion.identity;
+            return boneElement.preQ * rotation * boneElement.postQInv;
+        }
+
+        public static void CalibrateMuscles(Animator animator, BoneElement[] boneElements, IList<TransformInfoInit> transformInfos, bool transformsReadonly = false)
         {
             if (!animator)
                 return;
@@ -56,7 +76,7 @@ namespace Zettai
                     int index = boneNames.FindIndex(a => string.Equals(a, humanBone.humanName));
                     if (index < 0 || index == (int)HumanBodyBones.Hips)
                         continue;
-                    AddBone(boneElements, transformInfos, avatar, humanBone.limit, index, true);
+                    AddBone(boneElements, transformInfos, avatar, humanBone.limit, index, true, transformsReadonly);
                 }
             }
             else
@@ -67,7 +87,7 @@ namespace Zettai
                 {
                     // make sure the animator is active and enabled if using Unity 2021.2 or 2021.3
                     var exists = (bool)animator.GetBoneTransform((HumanBodyBones)i);
-                    AddBone(boneElements, transformInfos, avatar, defaultLimit, i, exists);
+                    AddBone(boneElements, transformInfos, avatar, defaultLimit, i, exists, transformsReadonly);
                 }
             }
             GetTwists(boneElements, hd);
@@ -129,14 +149,13 @@ namespace Zettai
             }
         }
 
-        private static void AddBone(BoneElement[] boneElements, IList<TransformInfoInit> transformInfos, Avatar avatar, HumanLimit humanLimit, int index, bool exists)
+        private static void AddBone(BoneElement[] boneElements, IList<TransformInfoInit> transformInfos, Avatar avatar, HumanLimit humanLimit, int index, bool exists, bool transformsReadonly)
         {
             var boneData = boneElements[index];
             boneData.dofExists.w = exists;
             if (!exists)
                 return;
             boneData.humanBodyBoneId = (HumanBodyBones)index;
-            boneData.sign = GetLimitSign(avatar, (HumanBodyBones)index);
             boneData.preQ = GetPreRotation(avatar, (HumanBodyBones)index);
             boneData.postQ = GetPostRotation(avatar, (HumanBodyBones)index);
             boneData.preQInv = Quaternion.Inverse(boneData.preQ);
@@ -167,12 +186,15 @@ namespace Zettai
                 boneData.max.z = HumanTrait.GetMuscleDefaultMax(z);
                 boneData.center = float3.zero;
             }
+            var sign = GetLimitSign(avatar, (HumanBodyBones)index);
+            boneData.min *= sign; 
+            boneData.max *= sign;
             transformInfos[index] = new TransformInfoInit
             {
                 HasMultipleChildren = false,
                 IsRoot = true,
-                IsEnabled = true,
-                IsReadOnly = false,
+                IsEnabled = index > 0,
+                IsReadOnly = transformsReadonly,
                 IsTransform = true
             };
             boneElements[index] = boneData;
@@ -215,13 +237,13 @@ namespace Zettai
 
             upperMuscle *= boneElementUpper.twistValue;
             var scale = upperMuscle >= 0 ? boneElementUpper.max.x : boneElementUpper.min.x;
-            var angleUpper = scale * upperMuscle * boneElementUpper.sign.x;
+            var angleUpper = scale * upperMuscle;
             var twistUpper = Quaternion.Euler(-angleUpper, 0f, 0f);
             var newRotUpper = boneElementUpper.preQ * originalRotUpper * twistUpper * boneElementUpper.postQInv;
 
             middleMuscle *= boneElementMiddle.twistValue;
             var scaleMiddle = middleMuscle >= 0 ? boneElementMiddle.max.x : boneElementMiddle.min.x;
-            var angleMiddle = boneElementMiddle.sign.x * scaleMiddle * middleMuscle;
+            var angleMiddle = scaleMiddle * middleMuscle;
             var twistMiddle = Quaternion.Euler(-angleMiddle, 0f, 0f);
 
             var newRotMiddle = middleTwistCorrection * boneElementMiddle.preQ * originalRotMiddle * twistMiddle * boneElementMiddle.postQInv;
