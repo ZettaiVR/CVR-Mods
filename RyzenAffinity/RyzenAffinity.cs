@@ -53,11 +53,14 @@ namespace Zettai
 
         private void SetAffinity(uint affinityMask)
         {
-            // use at most the number of threads minus one thread for worker threads, but at least one 
-            Unity.Jobs.LowLevel.Unsafe.JobsUtility.JobWorkerCount = Mathf.Max(1, NumberOfSetBits(affinityMask) - 1);
             var currentProcess = GetCurrentProcess();
             SetProcessAffinityMask(currentProcess, (IntPtr)affinityMask);
-            
+            try
+            {
+                // use at most the number of threads minus one thread for worker threads, but at least one 
+                Unity.Jobs.LowLevel.Unsafe.JobsUtility.JobWorkerCount = Math.Max(1, NumberOfSetBits(affinityMask) - 1);
+            }
+            catch (Exception) { }
         }
         private static int NumberOfSetBits(uint i)
         {
