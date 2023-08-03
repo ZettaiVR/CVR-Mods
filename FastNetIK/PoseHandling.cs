@@ -1,4 +1,5 @@
-﻿using System;
+﻿using MelonLoader;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -9,6 +10,7 @@ namespace Zettai
 {
     public class PoseHandling
     {
+        public static bool debugFrame = false;
         public unsafe static Quaternion GetBoneRotation(BoneElement boneElement, float[] muscles) 
         {
             fixed (float* musclesPtr = muscles) { return GetBoneRotation(boneElement, musclesPtr); }
@@ -41,9 +43,58 @@ namespace Zettai
             YZrot.x = 0f;
             YZrot.Normalize();
             YZrot *= twist;
+
             var result = boneElement.preQ * YZrot * boneElement.postQInv;
             return result;
         }
+        public unsafe static Quaternion GetBoneRotation(BoneElement boneElement, BoneElement parentBoneElement, float* muscles)
+        {
+            var dof = boneElement.dofExists;
+            if (!dof.w)
+                return Quaternion.identity;
+
+            var id = boneElement.muscleIds;
+
+            float rawX = dof.x ? muscles[id.x] : 0f;
+            float rawY = dof.y ? muscles[id.y] : 0f;
+            float rawZ = dof.z ? muscles[id.z] : 0f;
+
+            float scaleX = rawX >= 0f ? boneElement.max.x : boneElement.min.x;
+            float scaleY = rawY >= 0f ? boneElement.max.y : boneElement.min.y;
+            float scaleZ = rawZ >= 0f ? boneElement.max.z : boneElement.min.z;
+
+            float angleX = (scaleX * rawX) + boneElement.center.x;
+            float angleY = (scaleY * rawY) + boneElement.center.y;
+            float angleZ = (scaleZ * rawZ) + boneElement.center.z;
+
+            var twist = Quaternion.Euler(angleX * boneElement.twistValue, 0f, 0f);
+            var YZrot = Quaternion.Euler(0f, angleY, angleZ);
+            YZrot.x = 0f;
+            YZrot.Normalize();
+            YZrot *= twist;
+
+            var parentTwist = GetParentCarryoverTwist(boneElement, parentBoneElement, muscles);
+            YZrot = parentTwist * YZrot;
+            var result = boneElement.preQ * YZrot * boneElement.postQInv;
+            
+            return result;
+        }
+        private static unsafe Quaternion GetParentCarryoverTwist(BoneElement boneElement, BoneElement parentBoneElement, float* muscles)
+        {
+            if (!parentBoneElement.dofExists.x)
+                return Quaternion.identity;
+            
+            var weight = 1f - parentBoneElement.twistValue;
+            var value = muscles[parentBoneElement.muscleIds.x];
+            var minmax = value > 0 ? parentBoneElement.max.x : parentBoneElement.min.x;
+            var parentTwistAmount = Mathf.Deg2Rad * weight * (value * minmax + parentBoneElement.center.x);
+            if (parentTwistAmount == 0)
+                return Quaternion.identity;
+            var parentLocalTwistAxis = parentBoneElement.postQ * Vector3.right;
+            var parentLocalTwist = Quaternion.AngleAxis(parentTwistAmount, parentLocalTwistAxis);
+            return boneElement.preQInv * parentLocalTwist * boneElement.preQ;
+        }
+
 
         public static Quaternion GetGenericRotationOfBone(BoneElement boneElement, Quaternion localRotation) 
         {
@@ -155,6 +206,7 @@ namespace Zettai
             boneData.dofExists.w = exists;
             if (!exists)
                 return;
+            boneData.twistValue = 1f;
             boneData.humanBodyBoneId = (HumanBodyBones)index;
             boneData.preQ = GetPreRotation(avatar, (HumanBodyBones)index);
             boneData.postQ = GetPostRotation(avatar, (HumanBodyBones)index);
@@ -211,6 +263,14 @@ namespace Zettai
         }
         public static unsafe void FixBoneTwist(Quaternion[] rotations, BoneElement[] boneElements, float* muscles)
         {
+            if (FastNetIkMod.netIkTwistTest.Value)
+            {
+                FixLimbChainNew(rotations, boneElements, muscles, (int)HumanBodyBones.LeftUpperArm, (int)MuscleNamesEnum.LeftArmTwistInOut);
+                FixLimbChainNew(rotations, boneElements, muscles, (int)HumanBodyBones.RightUpperArm, (int)MuscleNamesEnum.RightArmTwistInOut);
+                FixLimbChainNew(rotations, boneElements, muscles, (int)HumanBodyBones.LeftUpperLeg, (int)MuscleNamesEnum.LeftUpperLegTwistInOut);
+                FixLimbChainNew(rotations, boneElements, muscles, (int)HumanBodyBones.RightUpperLeg, (int)MuscleNamesEnum.RightUpperLegTwistInOut);
+                return;
+            }
             FixLimbChain(rotations, boneElements, muscles, (int)HumanBodyBones.LeftUpperArm, (int)MuscleNamesEnum.LeftArmTwistInOut);
             FixLimbChain(rotations, boneElements, muscles, (int)HumanBodyBones.RightUpperArm, (int)MuscleNamesEnum.RightArmTwistInOut);
             FixLimbChain(rotations, boneElements, muscles, (int)HumanBodyBones.LeftUpperLeg, (int)MuscleNamesEnum.LeftUpperLegTwistInOut);
@@ -224,6 +284,15 @@ namespace Zettai
             var middleMuscle = muscles[startMuscle + 2];
             var boneElementEnd = boneElements[startIndex + 4];
             FixLimbs(rotations, upperMuscle, middleMuscle, boneElementUpper, boneElementMiddle, boneElementEnd, startIndex);
+        }
+        private static unsafe void FixLimbChainNew(Quaternion[] rotations, BoneElement[] boneElements, float* muscles, int startIndex, int startMuscle)
+        {
+            var boneElementUpper = boneElements[startIndex];
+            var boneElementMiddle = boneElements[startIndex + 2];
+            var boneElementEnd = boneElements[startIndex + 4];
+            rotations[startIndex] = GetBoneRotation(boneElementUpper, BoneElement.empty, muscles);
+            rotations[startIndex + 2] = GetBoneRotation(boneElementMiddle, boneElementUpper, muscles);
+            rotations[startIndex + 4] = GetBoneRotation(boneElementEnd, boneElementMiddle, muscles);
         }
         static void FixLimbs(Quaternion[] rotations, float upperMuscle, float middleMuscle, BoneElement boneElementUpper,
              BoneElement boneElementMiddle, BoneElement boneElementEnd, int startIndex)
