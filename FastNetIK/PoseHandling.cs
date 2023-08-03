@@ -49,12 +49,12 @@ namespace Zettai
         }
         public unsafe static Quaternion GetBoneRotation(BoneElement boneElement, BoneElement parentBoneElement, float* muscles)
         {
-            var dof = boneElement.dofExists;
-            if (!dof.w)
+            if (!boneElement.BoneExists)
                 return Quaternion.identity;
 
             var id = boneElement.muscleIds;
 
+            var dof = boneElement.dofExists;
             float rawX = dof.x ? muscles[id.x] : 0f;
             float rawY = dof.y ? muscles[id.y] : 0f;
             float rawZ = dof.z ? muscles[id.z] : 0f;
@@ -87,7 +87,7 @@ namespace Zettai
             var weight = 1f - parentBoneElement.twistValue;
             var value = muscles[parentBoneElement.muscleIds.x];
             var minmax = value > 0 ? parentBoneElement.max.x : parentBoneElement.min.x;
-            var parentTwistAmount = Mathf.Deg2Rad * weight * (value * minmax + parentBoneElement.center.x);
+            var parentTwistAmount = weight * (value * minmax + parentBoneElement.center.x);
             if (parentTwistAmount == 0)
                 return Quaternion.identity;
             var parentLocalTwistAxis = parentBoneElement.postQ * Vector3.right;
@@ -265,10 +265,10 @@ namespace Zettai
         {
             if (FastNetIkMod.netIkTwistTest.Value)
             {
-                FixLimbChainNew(rotations, boneElements, muscles, (int)HumanBodyBones.LeftUpperArm, (int)MuscleNamesEnum.LeftArmTwistInOut);
-                FixLimbChainNew(rotations, boneElements, muscles, (int)HumanBodyBones.RightUpperArm, (int)MuscleNamesEnum.RightArmTwistInOut);
-                FixLimbChainNew(rotations, boneElements, muscles, (int)HumanBodyBones.LeftUpperLeg, (int)MuscleNamesEnum.LeftUpperLegTwistInOut);
-                FixLimbChainNew(rotations, boneElements, muscles, (int)HumanBodyBones.RightUpperLeg, (int)MuscleNamesEnum.RightUpperLegTwistInOut);
+                FixLimbChainNew(rotations, boneElements, muscles, (int)HumanBodyBones.LeftUpperArm);
+                FixLimbChainNew(rotations, boneElements, muscles, (int)HumanBodyBones.RightUpperArm);
+                FixLimbChainNew(rotations, boneElements, muscles, (int)HumanBodyBones.LeftUpperLeg);
+                FixLimbChainNew(rotations, boneElements, muscles, (int)HumanBodyBones.RightUpperLeg);
                 return;
             }
             FixLimbChain(rotations, boneElements, muscles, (int)HumanBodyBones.LeftUpperArm, (int)MuscleNamesEnum.LeftArmTwistInOut);
@@ -285,7 +285,7 @@ namespace Zettai
             var boneElementEnd = boneElements[startIndex + 4];
             FixLimbs(rotations, upperMuscle, middleMuscle, boneElementUpper, boneElementMiddle, boneElementEnd, startIndex);
         }
-        private static unsafe void FixLimbChainNew(Quaternion[] rotations, BoneElement[] boneElements, float* muscles, int startIndex, int startMuscle)
+        private static unsafe void FixLimbChainNew(Quaternion[] rotations, BoneElement[] boneElements, float* muscles, int startIndex)
         {
             var boneElementUpper = boneElements[startIndex];
             var boneElementMiddle = boneElements[startIndex + 2];
