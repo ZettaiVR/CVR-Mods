@@ -224,12 +224,9 @@ namespace Zettai
                 {
                     uint* floats = (uint*)(bufferPtr + dataStart);
                     var firstFloat = SwapFloatUnlimited(floats[0]);
-                    if (!AltNetIK.AddData(firstFloat, floats + 1, puppetMaster, input))
+                    for (int i = 0; i < input.FaceTrackingData.Length; i++)
                     {
-                        for (int i = 0; i < input.FaceTrackingData.Length; i++)
-                        {
-                            input.FaceTrackingData[i] = SwapSmallFloat(floats[i]);
-                        }
+                        input.FaceTrackingData[i] = SwapSmallFloat(floats[i]);
                     }
                 }
 
