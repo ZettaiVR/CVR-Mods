@@ -258,8 +258,6 @@ namespace Zettai
         }
         private static void ScheduleWriteJobs()
         {
-            AltNetIK.Clear();
-
             writeJobHandleRoot = new PhysicsManagerBoneData.WriteBontToTransformJob2()
             {
                 fixedUpdateCount = 1,
