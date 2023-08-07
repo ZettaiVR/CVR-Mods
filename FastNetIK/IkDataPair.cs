@@ -6,13 +6,13 @@ namespace Zettai
     {
         public bool isDone;
         public bool failed;
-        public PlayerAvatarMovementData input;
-        public DarkRift.DarkRiftReader darkRiftReader;
-        public IkDataPair(PlayerAvatarMovementData _input, DarkRift.DarkRiftReader _darkRiftReader)
+        public PuppetMaster input;
+        public byte[] data;
+        public IkDataPair(PuppetMaster _input, byte[] data)
         {
             isDone = failed = false;
             input = _input;
-            darkRiftReader = _darkRiftReader;
+            this.data = data;
         }
     }
 }

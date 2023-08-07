@@ -1,5 +1,6 @@
 ﻿using ABI_RC.Core.Player;
 using MagicaCloth;
+using System;
 using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Jobs;
@@ -18,13 +19,7 @@ namespace Zettai
         public static JobHandle writeJobHandleHips;
         private static bool rebuildTransformAccess = true;
         internal static bool useFingerSpread;
-        private static bool initDone = false;
-        private static float ThumbsSplay = 0.3f;
-        private static float IndexSplay = 0f;
-        private static float MiddleSplay = 0f;
-        private static float RingSplay = 0f;
-        private static float PinkySplay = 0f;
-        
+        private static bool initDone = false;        
         private static readonly byte[] boneFlagArray = new byte[256];
         private static readonly int[] writeBoneIndexArray = new int[256];
         private static readonly int[] boneParentIndexArray = new int[256];
@@ -48,9 +43,11 @@ namespace Zettai
         private static NativeList<quaternion> writeBoneRotListRoot;
         private static NativeList<float3> writeBonePosListHips;
         private static NativeList<quaternion> writeBoneRotListHips;
+  //      private static NativeList<Quaternion> writeBoneRotList;
         private static TransformAccessArray rootArray;
         private static TransformAccessArray hipsArray;
         private static TransformAccessArray transformsAccess;
+        internal static NetIkData ownData;
 
         struct NetIkProcessingJob : IJobParallelFor
         {
@@ -76,7 +73,9 @@ namespace Zettai
                 writeBonePosListRoot.IsCreated &&
                 writeBoneRotListRoot.IsCreated &&
                 writeBonePosListHips.IsCreated &&
-                writeBoneRotListHips.IsCreated)
+                writeBoneRotListHips.IsCreated
+       //         && writeBoneRotList.IsCreated
+                )
                 {
                     int index = 0;
                     int count = 0;
@@ -87,19 +86,11 @@ namespace Zettai
                         writeBonePosListRoot[count] = item.Value.rootPosInterpolated;
                         writeBoneRotListRoot[count] = item.Value.rootRotInterpolated;
                         writeBonePosListHips[count] = item.Value.hipsPosInterpolated;
-                        writeBoneRotListHips[count++] = item.Value.hipsRotInterpolated;
+                        writeBoneRotListHips[count] = item.Value.hipsRotInterpolated;
+                        count++;
                     }
                 }
             }
-        }
-
-        internal static void UpdateFingerSpread(float thumb, float index, float middle, float ring, float little) 
-        {
-            ThumbsSplay = thumb;
-            IndexSplay = index;
-            MiddleSplay = middle;
-            RingSplay = ring;
-            PinkySplay = little;
         }
         public static void StartProcessing()
         {
@@ -107,7 +98,8 @@ namespace Zettai
             playersToProcessList.Clear();
             playersToProcessList.AddRange(allPlayers);
             RebuildArraysIfNeeded();
-            processingJobHandle = new NetIkProcessingJob(Time.time).Schedule(playersToProcessList.Count, 1, ReadNetworkData.ClearDoneDataHandle);
+            PoseHandling.debugFrame = Time.frameCount % 1000 == 0;
+            processingJobHandle = new NetIkProcessingJob(Time.time).Schedule(playersToProcessList.Count, 1, ReadNetworkData.DeserializeHandle);
             copyJobHandle = new NetIkCopyJob().Schedule(processingJobHandle);
         }
        
@@ -158,7 +150,9 @@ namespace Zettai
                     !writeBonePosListHips.IsCreated ||
                     !writeBoneRotListHips.IsCreated ||
                     !rootArray.isCreated ||
-                    !hipsArray.isCreated)
+                    !hipsArray.isCreated
+       //           || !writeBoneRotList.IsCreated
+                    )
             {
                 RebuildArrays();
             }
@@ -174,23 +168,19 @@ namespace Zettai
             if (!writeBoneRotListRoot.IsCreated) writeBoneRotListRoot = new NativeList<quaternion>(players.Count, Allocator.Persistent);
             if (!writeBonePosListHips.IsCreated) writeBonePosListHips = new NativeList<float3>(players.Count, Allocator.Persistent);
             if (!writeBoneRotListHips.IsCreated) writeBoneRotListHips = new NativeList<quaternion>(players.Count, Allocator.Persistent);
+    //        if (!writeBoneRotList.IsCreated) writeBoneRotList = new NativeList<Quaternion>(players.Count * 55, Allocator.Persistent);
 
             writeBonePosListRoot.Clear();
             writeBoneRotListRoot.Clear();
             writeBonePosListHips.Clear();
             writeBoneRotListHips.Clear();
+     //       writeBoneRotList.Clear();
 
             foreach (var item in players.Values)
             {
-                transformInfoInitList.AddRange(item.transformInfos);
-                transformsAccessList.AddRange(item.rotTransforms);
-                transformsAccessListRoot.Add(item.root);
-                transformsAccessListHips.Add(item.hips);
-                writeBonePosListRoot.Add(item.rootPosInterpolated);
-                writeBoneRotListRoot.Add(item.rootRotInterpolated);
-                writeBonePosListHips.Add(item.hipsPosInterpolated);
-                writeBoneRotListHips.Add(item.hipsRotInterpolated);
+                AddPlayerToNativeArrays(item);
             }
+
             if (transformInfoInitArray.IsCreated)
                 transformInfoInitArray.Dispose();
             transformInfoInitArray = transformInfoInitList.ToNativeArray(Allocator.Persistent);
@@ -216,6 +206,19 @@ namespace Zettai
             transformsAccessListHips.Clear();
             initDone = true;
         }
+
+        private static void AddPlayerToNativeArrays(NetIkData item)
+        {
+            transformInfoInitList.AddRange(item.transformInfos);
+            transformsAccessList.AddRange(item.rotTransforms);
+            transformsAccessListRoot.Add(item.root);
+            transformsAccessListHips.Add(item.hips);
+            writeBonePosListRoot.Add(item.rootPosInterpolated);
+            writeBoneRotListRoot.Add(item.rootRotInterpolated);
+            writeBonePosListHips.Add(item.hipsPosInterpolated);
+            writeBoneRotListHips.Add(item.hipsRotInterpolated);
+        }
+
         internal static unsafe void ArrayInit()
         {
             // boneFlagList[num] = 32 = 0x20202020
@@ -255,6 +258,8 @@ namespace Zettai
         }
         private static void ScheduleWriteJobs()
         {
+            AltNetIK.Clear();
+
             writeJobHandleRoot = new PhysicsManagerBoneData.WriteBontToTransformJob2()
             {
                 fixedUpdateCount = 1,
@@ -264,7 +269,9 @@ namespace Zettai
                 writeBonePosList = writeBonePosListRoot,
                 writeBoneRotList = writeBoneRotListRoot,
                 boneUnityPhysicsList = boneUnityPhysicsList
-            }.Schedule(rootArray, copyJobHandle);
+            }
+            .Schedule(rootArray, copyJobHandle);
+
             writeJobHandleHips = new PhysicsManagerBoneData.WriteBontToTransformJob2()
             {
                 fixedUpdateCount = 1,
@@ -274,64 +281,92 @@ namespace Zettai
                 writeBonePosList = writeBonePosListHips,
                 writeBoneRotList = writeBoneRotListHips,
                 boneUnityPhysicsList = boneUnityPhysicsList
-            }.Schedule(hipsArray, writeJobHandleRoot);
+            }
+            .Schedule(hipsArray, writeJobHandleRoot);
             writeJobHandle = new ApplyAllLocalTransforms(transformInfoInitArray).Schedule(transformsAccess, writeJobHandleHips);
         }
         private static void UpdatePlayer(NetIkData netIkData, float time)
         {
             var puppetMaster = netIkData.puppetMaster;
-            Vector3 rot;
             if (puppetMaster._lastUpdate != netIkData.updateCurr)
-                unsafe
+            {
+                Span<float> muscles = stackalloc float[95];
+                // new data in current slot
+                if (puppetMaster._lastBeforeUpdate == netIkData.updateCurr)
                 {
-                    var muscles = stackalloc float[95];
-                    // new data in current slot
-                    if (puppetMaster._lastBeforeUpdate == netIkData.updateCurr)
-                    {
-                        // move current to previous slot
-                        netIkData.dataPrev = netIkData.dataCurr;
-                        netIkData.updatePrev = netIkData.updateCurr;
-                        var tempRot = netIkData.rotations1;
-                        netIkData.rotations1 = netIkData.rotations2;
-                        netIkData.rotations2 = tempRot;
-
-                        netIkData.hipsRot2 = netIkData.hipsRot1;
-                        netIkData.rootRot2 = netIkData.rootRot1;
-                        netIkData.hipsPos2 = netIkData.hipsPos1;
-                        netIkData.rootPos2 = netIkData.rootPos1;
-                    }
-                    else
-                    {
-                        netIkData.dataPrev = puppetMaster._playerAvatarMovementDataPast;
-                        netIkData.updatePrev = puppetMaster._lastBeforeUpdate;
-
-                        rot = netIkData.dataPrev.BodyRotation;
-                        if (puppetMaster._isBlocked && !puppetMaster._isBlockedAlt)
-                            rot -= netIkData.dataPrev.RelativeHipRotation - puppetMaster.relativeHipRotation;
-                        netIkData.hipsRot2 = Quaternion.Euler(rot);
-                        netIkData.rootRot2 = Quaternion.Euler(netIkData.dataPrev.RootRotation);
-                        netIkData.hipsPos2 = netIkData.dataPrev.BodyPosition;
-                        netIkData.rootPos2 = netIkData.dataPrev.RootPosition;
-                        SetMuscleValues(muscles, netIkData.dataPrev);
-                        for (int i = 0; i < netIkData.rotations2.Length; i++)
-                            netIkData.rotations2[i] = PoseHandling.GetBoneRotation(netIkData.boneElements[i], muscles);
-                        PoseHandling.FixBoneTwist(netIkData.rotations2, netIkData.boneElements, muscles);
-                    }
-                    netIkData.updateCurr = puppetMaster._lastUpdate;
-                    netIkData.dataCurr = puppetMaster._playerAvatarMovementDataCurrent;
-                    rot = netIkData.dataCurr.BodyRotation;
-                    if (puppetMaster._isBlocked && !puppetMaster._isBlockedAlt)
-                        rot -= netIkData.dataPrev.RelativeHipRotation - puppetMaster.relativeHipRotation;
-                    netIkData.hipsRot1 = Quaternion.Euler(rot);
-                    netIkData.rootRot1 = Quaternion.Euler(netIkData.dataCurr.RootRotation);
-                    netIkData.hipsPos1 = netIkData.dataCurr.BodyPosition;
-                    netIkData.rootPos1 = netIkData.dataCurr.RootPosition;
-                    SetMuscleValues(muscles, netIkData.dataCurr);
-                    for (int i = 0; i < netIkData.rotations1.Length; i++)
-                        netIkData.rotations1[i] = PoseHandling.GetBoneRotation(netIkData.boneElements[i], muscles);
-                    PoseHandling.FixBoneTwist(netIkData.rotations1, netIkData.boneElements, muscles);
+                    // move current to previous slot
+                    netIkData.dataPrev = netIkData.dataCurr;
+                    netIkData.updatePrev = netIkData.updateCurr;
+                    (netIkData.rotations2, netIkData.rotations1) = (netIkData.rotations1, netIkData.rotations2);
+                    netIkData.hipsRot2 = netIkData.hipsRot1;
+                    netIkData.rootRot2 = netIkData.rootRot1;
+                    netIkData.hipsPos2 = netIkData.hipsPos1;
+                    netIkData.rootPos2 = netIkData.rootPos1;
                 }
-            // interpolate rotations
+                else
+                {
+                    netIkData.dataPrev = puppetMaster._playerAvatarMovementDataPast;
+                    netIkData.updatePrev = puppetMaster._lastBeforeUpdate;
+                    var BodyRotation = netIkData.dataPrev.BodyRotation;
+                    if (puppetMaster._isBlocked && !puppetMaster._isBlockedAlt)
+                        BodyRotation -= netIkData.dataPrev.RelativeHipRotation - puppetMaster.relativeHipRotation;
+                    netIkData.hipsRot2 = Quaternion.Euler(BodyRotation);
+                    netIkData.rootRot2 = Quaternion.Euler(netIkData.dataPrev.RootRotation);
+                    netIkData.hipsPos2 = netIkData.dataPrev.BodyPosition;
+                    netIkData.rootPos2 = netIkData.dataPrev.RootPosition;
+                    SetMuscleValues(muscles, netIkData.dataPrev);
+                    var _fingers = netIkData.dataPrev.IndexUseIndividualFingers;
+                    SetBoneRotations(netIkData.rotations2, netIkData.boneElements, muscles, _fingers);
+                }
+                netIkData.updateCurr = puppetMaster._lastUpdate;
+                netIkData.dataCurr = puppetMaster._playerAvatarMovementDataCurrent;
+                var bodyRotation = netIkData.dataCurr.BodyRotation;
+                if (puppetMaster._isBlocked && !puppetMaster._isBlockedAlt)
+                    bodyRotation -= netIkData.dataPrev.RelativeHipRotation - puppetMaster.relativeHipRotation;
+                netIkData.hipsRot1 = Quaternion.Euler(bodyRotation);
+                netIkData.rootRot1 = Quaternion.Euler(netIkData.dataCurr.RootRotation);
+                netIkData.hipsPos1 = netIkData.dataCurr.BodyPosition;
+                netIkData.rootPos1 = netIkData.dataCurr.RootPosition;
+                SetMuscleValues(muscles, netIkData.dataCurr);
+                var fingers = netIkData.dataCurr.IndexUseIndividualFingers;
+                SetBoneRotations(netIkData.rotations1, netIkData.boneElements, muscles, fingers);
+            }
+            InterpolateRotations(netIkData, time, puppetMaster);
+        }
+
+        private static unsafe void SetBoneRotations(Quaternion[] rotations, BoneElement[] bones, ReadOnlySpan<float> muscles, bool fingers)
+        {
+            rotations[01] = PoseHandling.GetBoneRotation(ref bones[01], ref BoneElement.empty, muscles);
+            rotations[02] = PoseHandling.GetBoneRotation(ref bones[02], ref BoneElement.empty, muscles);
+            rotations[03] = PoseHandling.GetBoneRotation(ref bones[03], ref bones[01], muscles);
+            rotations[04] = PoseHandling.GetBoneRotation(ref bones[04], ref bones[02], muscles);
+            rotations[05] = PoseHandling.GetBoneRotation(ref bones[05], ref bones[03], muscles);
+            rotations[06] = PoseHandling.GetBoneRotation(ref bones[06], ref bones[04], muscles);
+            rotations[07] = PoseHandling.GetBoneRotation(ref bones[07], muscles);
+            rotations[08] = PoseHandling.GetBoneRotation(ref bones[08], muscles);
+            rotations[09] = PoseHandling.GetBoneRotation(ref bones[09], muscles);
+            rotations[10] = PoseHandling.GetBoneRotation(ref bones[10], muscles);
+            rotations[11] = PoseHandling.GetBoneRotation(ref bones[11], muscles);
+            rotations[12] = PoseHandling.GetBoneRotation(ref bones[12], muscles);
+            rotations[13] = PoseHandling.GetBoneRotation(ref bones[13], ref BoneElement.empty, muscles);
+            rotations[14] = PoseHandling.GetBoneRotation(ref bones[14], ref BoneElement.empty, muscles);
+            rotations[15] = PoseHandling.GetBoneRotation(ref bones[15], ref bones[13], muscles);
+            rotations[16] = PoseHandling.GetBoneRotation(ref bones[16], ref bones[14], muscles);
+            rotations[17] = PoseHandling.GetBoneRotation(ref bones[17], ref bones[15], muscles);
+            rotations[18] = PoseHandling.GetBoneRotation(ref bones[18], ref bones[16], muscles);
+            rotations[19] = PoseHandling.GetBoneRotation(ref bones[19], muscles);
+            rotations[20] = PoseHandling.GetBoneRotation(ref bones[20], muscles);
+            rotations[21] = PoseHandling.GetBoneRotation(ref bones[21], muscles);
+            rotations[22] = PoseHandling.GetBoneRotation(ref bones[22], muscles);
+            rotations[23] = PoseHandling.GetBoneRotation(ref bones[23], muscles);
+            if (fingers)
+                for (int i = (int)HumanBodyBones.LeftThumbProximal; i < (int)HumanBodyBones.UpperChest; i++)
+                    rotations[i] = PoseHandling.GetBoneRotation(ref bones[i], muscles);
+            rotations[54] = PoseHandling.GetBoneRotation(ref bones[54], muscles);
+        }
+        private static void InterpolateRotations(NetIkData netIkData, float time, PuppetMaster puppetMaster)
+        {
+            quaternion _rot = quaternion.identity;
             var t = Mathf.Min((time - puppetMaster._lastUpdate) / puppetMaster.UpdateIntervalCalculated, 1f); // progress
             netIkData.hipsRotInterpolated = Quaternion.Slerp(netIkData.hipsRot2, netIkData.hipsRot1, t);
             netIkData.rootRotInterpolated = Quaternion.Slerp(netIkData.rootRot2, netIkData.rootRot1, t);
@@ -340,19 +375,37 @@ namespace Zettai
 
             for (int i = 1; i < 24; i++)
             {
-                if (netIkData.transformInfos[i].IsTransform)
-                    netIkData.transformInfos[i].initLocalRotation = Quaternion.Slerp(netIkData.rotations2[i], netIkData.rotations1[i], t);
+                bool enabled = (netIkData.transformInfos[i].bits & 1) == 1;
+                if (enabled)
+                {
+                    var rot = Quaternion.Slerp(netIkData.rotations2[i], netIkData.rotations1[i], t);
+                    _rot.value.x = rot.x;
+                    _rot.value.y = rot.y;
+                    _rot.value.z = rot.z;
+                    _rot.value.w = rot.w;
+                    netIkData.transformInfos[i].initLocalRotation = _rot;
+                }
             }
-            if (netIkData.transformInfos[54].IsTransform)
+            if (netIkData.transformInfos[54].IsEnabled)
                 netIkData.transformInfos[54].initLocalRotation = Quaternion.Slerp(netIkData.rotations2[54], netIkData.rotations1[54], t);
 
-            if (netIkData.dataCurr.IndexUseIndividualFingers)
+            bool fingers = netIkData.dataCurr != null && netIkData.dataCurr.IndexUseIndividualFingers;
+
+            if (fingers)
             {
                 bool setFingersOn = !netIkData.fingers;
                 for (int i = 24; i < 54; i++)
                 {
-                    if (netIkData.transformInfos[i].IsTransform)
-                        netIkData.transformInfos[i].initLocalRotation = Quaternion.Slerp(netIkData.rotations2[i], netIkData.rotations1[i], t);
+                    bool enabled = (netIkData.transformInfos[i].bits & 1) == 1;
+                    if (enabled)
+                    {
+                        var rot = Quaternion.Slerp(netIkData.rotations2[i], netIkData.rotations1[i], t);
+                        _rot.value.x = rot.x;
+                        _rot.value.y = rot.y;
+                        _rot.value.z = rot.z;
+                        _rot.value.w = rot.w;
+                        netIkData.transformInfos[i].initLocalRotation = _rot;
+                    }
                     if (setFingersOn)
                         netIkData.transformInfos[i].IsEnabled = true;
                 }
@@ -367,18 +420,18 @@ namespace Zettai
                 netIkData.fingers = false;
             }
         }
-        internal static unsafe void SetMuscleValues(float* muscles, PlayerAvatarMovementData data)
+        internal static unsafe void SetMuscleValues(Span<float> muscles, PlayerAvatarMovementData data)
         {
-            muscles[0] = data.SpineFrontBack;
-            muscles[1] = data.SpineLeftRight;
-            muscles[2] = data.SpineTwistLeftRight;
-            muscles[3] = data.ChestFrontBack;
-            muscles[4] = data.ChestLeftRight;
-            muscles[5] = data.ChestTwistLeftRight;
-            muscles[6] = data.UpperChestFrontBack;
-            muscles[7] = data.UpperChestLeftRight;
-            muscles[8] = data.UpperChestTwistLeftRight;
-            muscles[9] = data.NeckNodDownUp;
+            muscles[00] = data.SpineFrontBack;
+            muscles[01] = data.SpineLeftRight;
+            muscles[02] = data.SpineTwistLeftRight;
+            muscles[03] = data.ChestFrontBack;
+            muscles[04] = data.ChestLeftRight;
+            muscles[05] = data.ChestTwistLeftRight;
+            muscles[06] = data.UpperChestFrontBack;
+            muscles[07] = data.UpperChestLeftRight;
+            muscles[08] = data.UpperChestTwistLeftRight;
+            muscles[09] = data.NeckNodDownUp;
             muscles[10] = data.NeckTiltLeftRight;
             muscles[11] = data.NeckTurnLeftRight;
             muscles[12] = data.HeadNodDownUp;
@@ -421,42 +474,26 @@ namespace Zettai
             if (!data.IndexUseIndividualFingers)
                 return;
 
-            muscles[55] = muscles[57] = muscles[58] = 0.7f + -1.7f * data.LeftThumbCurl;
-            muscles[59] = muscles[61] = muscles[62] = 0.7f + -1.7f * data.LeftIndexCurl;
-            muscles[63] = muscles[65] = muscles[66] = 0.7f + -1.7f * data.LeftMiddleCurl;
-            muscles[67] = muscles[69] = muscles[70] = 0.7f + -1.7f * data.LeftRingCurl;
-            muscles[71] = muscles[73] = muscles[74] = 0.7f + -1.7f * data.LeftPinkyCurl;
-            muscles[75] = muscles[77] = muscles[78] = 0.7f + -1.7f * data.RightThumbCurl;
-            muscles[79] = muscles[81] = muscles[82] = 0.7f + -1.7f * data.RightIndexCurl;
-            muscles[83] = muscles[85] = muscles[86] = 0.7f + -1.7f * data.RightMiddleCurl;
-            muscles[87] = muscles[89] = muscles[90] = 0.7f + -1.7f * data.RightRingCurl;
-            muscles[91] = muscles[93] = muscles[94] = 0.7f + -1.7f * data.RightPinkyCurl;
+            muscles[55] = muscles[57] = muscles[58] = 0.85f - 1.7f * data.LeftThumbCurl;
+            muscles[59] = muscles[61] = muscles[62] = 0.70f - 1.7f * data.LeftIndexCurl;
+            muscles[63] = muscles[65] = muscles[66] = 0.70f - 1.7f * data.LeftMiddleCurl;
+            muscles[67] = muscles[69] = muscles[70] = 0.70f - 1.7f * data.LeftRingCurl;
+            muscles[71] = muscles[73] = muscles[74] = 0.70f - 1.7f * data.LeftPinkyCurl;
+            muscles[75] = muscles[77] = muscles[78] = 0.85f - 1.7f * data.RightThumbCurl;
+            muscles[79] = muscles[81] = muscles[82] = 0.70f - 1.7f * data.RightIndexCurl;
+            muscles[83] = muscles[85] = muscles[86] = 0.70f - 1.7f * data.RightMiddleCurl;
+            muscles[87] = muscles[89] = muscles[90] = 0.70f - 1.7f * data.RightRingCurl;
+            muscles[91] = muscles[93] = muscles[94] = 0.70f - 1.7f * data.RightPinkyCurl;
 
-
-            float leftThumbSpread = data.LeftThumbSpread;
-
-            if (!useFingerSpread || leftThumbSpread < 5f)
-            {
-                muscles[56] = muscles[76] = ThumbsSplay;
-                muscles[60] = muscles[80] = IndexSplay;
-                muscles[64] = muscles[84] = MiddleSplay;
-                muscles[68] = muscles[88] = RingSplay;
-                muscles[72] = muscles[92] = PinkySplay;
-                return;
-            }
-
-            // leftThumbSpread is offset by 10 so we can recognize if it's sent by this mod
-
-            muscles[56] = leftThumbSpread - 10f;
-            muscles[60] = data.LeftIndexSpread;
-            muscles[64] = data.LeftMiddleSpread;
-            muscles[68] = data.LeftRingSpread;
-            muscles[72] = data.LeftPinkySpread;
-            muscles[76] = data.RightThumbSpread;
-            muscles[80] = data.RightIndexSpread;
-            muscles[84] = data.RightMiddleSpread;
-            muscles[88] = data.RightRingSpread;
-            muscles[92] = data.RightPinkySpread;
+            muscles[60] = 1f - 2.0f * data.LeftIndexSpread;
+            muscles[64] = 2f - 4.0f * data.LeftMiddleSpread;
+            muscles[68] = 2f - 4.0f * data.LeftRingSpread;
+            muscles[72] = 1f - 1.5f * data.LeftPinkySpread;
+            muscles[76] = 1f - 2.5f * data.RightThumbSpread;
+            muscles[80] = 1f - 2.0f * data.RightIndexSpread;
+            muscles[84] = 2f - 4.0f * data.RightMiddleSpread;
+            muscles[88] = 2f - 4.0f * data.RightRingSpread;
+            muscles[92] = 1f - 1.5f * data.RightPinkySpread;
         }
     }
 }

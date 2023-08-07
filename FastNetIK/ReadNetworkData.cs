@@ -8,9 +8,10 @@ namespace Zettai
     internal class ReadNetworkData
     {
         private static readonly List<IkDataPair> dataCache = new List<IkDataPair>();
+
+        private static readonly Stack<byte[]> bufferCache = new Stack<byte[]>();
         internal static JobHandle DeserializeHandle;
-        internal static JobHandle ClearDoneDataHandle;
-        private static bool started = false;
+        internal static bool started = false;
       
         /// <summary>
         /// Swap endianness of a float and makes sure it's value is within reason for numbers at most 8.5 billion
@@ -25,6 +26,18 @@ namespace Zettai
             //  NaN or inf or > 8 589 934 080
             if (abs >= 0x50000000)
                 return 0f;
+            return *(float*)&intValue;
+        }
+
+        /// <summary>
+        /// Swap endianness of a float with no limits on it
+        /// </summary>
+        /// <param name="value">The float as an uint</param>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static unsafe float SwapFloatUnlimited(uint value)
+        {
+            uint intValue = value;
+            intValue = ((intValue & 0x000000ff) << 24) | ((intValue & 0x0000ff00) << 8) | ((intValue & 0x00ff0000) >> 8) | ((intValue & 0xff000000) >> 24);
             return *(float*)&intValue;
         }
 
@@ -62,6 +75,8 @@ namespace Zettai
         private static unsafe bool GetPlayerPuppetMaster(byte[] buffer, out PuppetMaster pm)
         {
             pm = null;
+            if (buffer == null)
+                return false;
             var uuid = stackalloc char[36];
             for (int i = 0; i < 36; i++)
             {
@@ -94,49 +109,58 @@ namespace Zettai
                 return;
             started = true;
             var deserializeIkJob = new DeserializeIkJob();
-            var clearDoneDataJob = new ClearDoneDataJob();
 
             DeserializeHandle = deserializeIkJob.Schedule(dataCache.Count, 2);
-            ClearDoneDataHandle = clearDoneDataJob.Schedule(DeserializeHandle);
+        }
+        const int CachedBufferSize = 2048;
+        private static byte[] GetBuffer(byte[] buffer)
+        {
+            if (buffer == null)
+                return null;
+            int size = buffer.Length;
+            byte[] data;
+            if (bufferCache.Count == 0 || size > CachedBufferSize)
+            {
+                data = size > CachedBufferSize ? new byte[size] : new byte[CachedBufferSize];
+            //    MelonLoader.MelonLogger.Msg($"new array {size}, cache: {bufferCache.Count}");
+            }
+            else
+            {
+                data = bufferCache.Pop();
+            }
+            System.Array.Copy(buffer, data, buffer.Length);
+            return data;
+        }
+        private static void ReturnBuffer(byte[] buffer)
+        {
+            if (buffer == null || buffer.Length != CachedBufferSize)
+                return;
+            bufferCache.Push(buffer);      
         }
 
         public static void AddData(DarkRift.Message message)
         {
-            var reader = message.GetReader();
-            var buffer = reader.buffer.Buffer;
-            if (GetPlayerPuppetMaster(buffer, out var puppetMaster))
+            var buffer = message.buffer.Buffer;
+            var newBuffer = GetBuffer(buffer);
+            if (GetPlayerPuppetMaster(newBuffer, out var puppetMaster))
             {
                 puppetMaster.CycleData();
-                dataCache.Add(new IkDataPair(puppetMaster.PlayerAvatarMovementDataInput, reader));
+                dataCache.Add(new IkDataPair(puppetMaster, newBuffer));
             }
         }
         public static void CompleteProcessing()
         {
             DeserializeHandle.Complete();
+            ClearAllCachedData();
             started = false;
         }
         public static void ClearAllCachedData()
         {
             for (int i = 0; i < dataCache.Count; i++)
             {
-                dataCache[i].darkRiftReader.Dispose();
+                ReturnBuffer(dataCache[i].data);
             }
             dataCache.Clear();
-        }
-
-        public struct ClearDoneDataJob : IJob
-        {
-            public void Execute()
-            {
-                for (int i = dataCache.Count - 1; i >= 0; i--)
-                {
-                    if (dataCache[i].isDone)
-                    {
-                        dataCache[i].darkRiftReader.Dispose();
-                        dataCache.RemoveAt(i);
-                    }
-                }
-            }
         }
 
         public struct DeserializeIkJob : IJobParallelFor
@@ -146,13 +170,14 @@ namespace Zettai
                 var _data = dataCache[index];
                 if (_data.isDone)
                     return;
-                _data.failed = Apply(_data.darkRiftReader.buffer.Buffer, _data.input);                
+                _data.failed = Apply(_data.data, _data.input);                
                 _data.isDone = true;
                 dataCache[index] = _data;
             }
         }
-        private static unsafe bool Apply(byte[] buffer, PlayerAvatarMovementData input)
+        private static unsafe bool Apply(byte[] buffer, PuppetMaster puppetMaster)
         {
+            var input = puppetMaster?.PlayerAvatarMovementDataInput;
             if (buffer == null || input == null)
                 return false;
             var idLength = SwapInt(buffer, 3);
@@ -165,45 +190,53 @@ namespace Zettai
                 PlayerAvatarMovementDataInputBase baseData = *(PlayerAvatarMovementDataInputBase*)(bufferPtr + dataStart);
                 baseData.CopyToClass(input);
                 dataStart += PlayerAvatarMovementDataInputBase.size;
-                bool fingerDataPresent = bufferPtr[dataStart++] != 0;
+                bool fingerDataPresent = bufferPtr[dataStart++] == 1;
                 if (fingerDataPresent)
                 {
                     PlayerAvatarMovementDataInputFingerOnly fingers = *(PlayerAvatarMovementDataInputFingerOnly*)(bufferPtr + dataStart);
                     fingers.CopyToClass(input);
                     dataStart += PlayerAvatarMovementDataInputFingerOnly.size;
                 }
-                bool cameraEnabled = input.CameraEnabled = bufferPtr[dataStart++] != 0;
+                bool cameraEnabled = input.CameraEnabled = bufferPtr[dataStart++] == 1;
                 if (cameraEnabled)
                 {
                     CameraData cam = *(CameraData*)(bufferPtr + dataStart);
                     cam.CopyToClass(input);
                     dataStart += CameraData.size;
                 }
-                bool eyeTracking = input.EyeTrackingOverride = bufferPtr[dataStart++] != 0;
+                bool eyeTracking = input.EyeTrackingOverride = bufferPtr[dataStart++] == 1;
                 if (eyeTracking)
                 {
                     EyeTrackingPositionData eyePos = *(EyeTrackingPositionData*)(bufferPtr + dataStart);
                     eyePos.CopyToClass(input);
                     dataStart += EyeTrackingPositionData.size;
                 }
-                bool eyeBlink = input.EyeBlinkingOverride = bufferPtr[dataStart++] != 0;
+                bool eyeBlink = input.EyeBlinkingOverride = bufferPtr[dataStart++] == 1;
                 if (eyeBlink)
                 {
                     EyeTrackingBlinkData eyeBlinkData = *(EyeTrackingBlinkData*)(bufferPtr + dataStart);
                     eyeBlinkData.CopyToClass(input);
                     dataStart += EyeTrackingBlinkData.size;
                 }
-                bool faceTracking = input.FaceTrackingEnabled = bufferPtr[dataStart++] != 0;
+                var data = bufferPtr[dataStart++];
+                bool faceTracking = input.FaceTrackingEnabled = data == 1;
                 if (faceTracking)
                 {
                     uint* floats = (uint*)(bufferPtr + dataStart);
-                    for (int i = 0; i < 37; i++)
+                    var firstFloat = SwapFloatUnlimited(floats[0]);
+                    if (!AltNetIK.AddData(firstFloat, floats + 1, puppetMaster, input))
                     {
-                        input.FaceTrackingData[i] = SwapSmallFloat(floats[i]);
+                        for (int i = 0; i < input.FaceTrackingData.Length; i++)
+                        {
+                            input.FaceTrackingData[i] = SwapSmallFloat(floats[i]);
+                        }
                     }
                 }
+
             }
             return true;
         }
+
+        
     }
 }

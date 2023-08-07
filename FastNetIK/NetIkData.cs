@@ -35,5 +35,16 @@ namespace Zettai
         public Vector3 hipsPos2;
         public float updateCurr;
         public float updatePrev;
+
+        public NetIkData(PuppetMaster _puppetMaster)
+        {
+            puppetMaster = _puppetMaster;
+            animator = _puppetMaster?._animator;
+        }
+        public NetIkData(PlayerSetup playerSetup)
+        {
+            puppetMaster = null;
+            animator = playerSetup?._animator;
+        }
     }
 }

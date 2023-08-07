@@ -10,7 +10,6 @@ namespace Zettai
         public Quaternion preQInv;
         public Quaternion postQ;
         public Quaternion postQInv;
-        public Quaternion twistQ;
         public int3 muscleIds;
         public float3 min;
         public float3 max;
