@@ -1,13 +1,16 @@
-# ChilloutVR mods
-
-Not affiliated with or supported by ChilloutVR or Alpha Blend Interactive.
-
-## ConstraintsFixer
-some mods can trigger an error that results in constraints not executing at the right time, and not following IK. 
-This fixes that.
+# Universal Unity game mod
 
 ## RyzenAffinity
 Sets the affinity of the game to the first CCX for AMD Ryzen CPUs. Doesn't do anything if any other CPU is used.
+
+# ChilloutVR mods
+Not affiliated with or supported by ChilloutVR or Alpha Blend Interactive.
+
+## ConstraintsFixer
+Some mods can trigger an error that results in constraints not executing at the right time, and not following IK. 
+This fixes that.
+
+Updated/recompiled for new CVR version:
 
 ## FastNetIK
 Use the Unity jobs system for remote players' network IK, making it faster.
