@@ -10,6 +10,9 @@ Not affiliated with or supported by ChilloutVR or Alpha Blend Interactive.
 Some mods can trigger an error that results in constraints not executing at the right time, and not following IK. 
 This fixes that.
 
+## MenuDisable
+Disable the update of the quick menu and the main menu when they are not in view.
+
 Updated/recompiled for new CVR version:
 
 ## FastNetIK
