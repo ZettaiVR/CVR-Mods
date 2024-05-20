@@ -150,7 +150,7 @@ namespace Zettai
         public ClearFlags clearFlags = ClearFlags.Default;
         public Color backgroundColor = Color.clear;
         [Range(0.01f, 1f)]
-        public float MaxTextureSizePercent = 1.0f;  // this should be a setting in config
+        public float MaxTextureSizePercent = 1.0f;  
         public LayerMask m_ReflectLayers = -1;
         public bool useAverageNormals = true;
         public bool useFrustum = true;
@@ -222,7 +222,7 @@ namespace Zettai
         {
             copySupported = SystemInfo.copyTextureSupport.HasFlag(CopyTextureSupport.Basic);
 
-            // Move mirror to water layer
+            // Move mirror to it's own layer
             gameObject.layer = MirrorLayer; //CVRReserved3
 
             materialPropertyBlock = new MaterialPropertyBlock();
@@ -462,7 +462,7 @@ namespace Zettai
 
             // Rendering will happen.
 
-            // Force mirrors to Water layer
+            // Force mirrors to their own layer
             if (gameObject.layer != MirrorLayer)
                 gameObject.layer = MirrorLayer;
 
@@ -639,12 +639,9 @@ namespace Zettai
             m_ReflectionCamera.cullingMask = m_ReflectLayers.value & MirrorLayerExcludeMask; // mirrors never render their own layer mask: 1111 1111 1111 1111 1101 1111 1111 1111
 
             // set mirror to zero pos
-            var _mirrorPos = mirrorPos;
-            mirrorPos = Vector3.zero;
-            var currentPos = transform.position;
-            transform.position -= _mirrorPos;
+            scaleOffset.transform.position -= mirrorPos;
             // camera mirrored to other side of mirror
-            var worldToCameraMatrix = GetViewMatrix(m_CullingCamera, mirrorPos, normal, eye, isStereo);
+            var worldToCameraMatrix = GetViewMatrix(m_CullingCamera, Vector3.zero, normal, eye, isStereo);
             m_CullingCamera.transform.localRotation = cullingRotation;
             m_ReflectionCamera.worldToCameraMatrix = worldToCameraMatrix;
             var wtinv = worldToCameraMatrix.inverse;
@@ -656,11 +653,12 @@ namespace Zettai
             m_ReflectionCamera.projectionMatrix = m_InversionMatrix * projectionMatrix * m_InversionMatrix;
 
             var ltwm = m_Renderer.localToWorldMatrix;
+            ltwm = Matrix4x4.TRS(mirrorPos, Quaternion.identity, Vector3.one).inverse * ltwm;
             ltwm *= meshTrs.inverse;
             var worldCorners = meshCorners.MultiplyPoint3x4(ltwm);
             if (!TryGetRectPixel(m_ReflectionCamera, worldCorners, boundsLocalSpace, ltwm, keepNearClip, out var frustum, out float nearDistance, out Rect pixelRect, out var mirrorPlane))
             {
-                transform.position = currentPos;
+                scaleOffset.transform.localPosition = Vector3.zero;
                 return;
             }
 
@@ -679,7 +677,7 @@ namespace Zettai
             }
             // Setup oblique projection matrix so that near plane is our reflection plane.
             // This way we clip everything below/above it for free.
-            var clipPlane = CameraSpacePlane(worldToCameraMatrix, mirrorPos, normal, 1.0f);
+            var clipPlane = CameraSpacePlane(worldToCameraMatrix, Vector3.zero, normal, 1.0f);
             m_ReflectionCamera.projectionMatrix = m_ReflectionCamera.CalculateObliqueMatrix(clipPlane);
             var useOcclusion = useOcclusionCulling;
             if (useOcclusionCulling)
@@ -688,8 +686,7 @@ namespace Zettai
                 var farclip = m_CullingCamera.farClipPlane = currentCam.farClipPlane;
                 useOcclusion = SetCullingCameraProjectionMatrix(m_CullingCamera, m_ReflectionCamera, worldCorners, mirrorPlane, ltwm.MultiplyPoint3x4(meshMid), farclip);
             }
-            transform.position = currentPos;
-            mirrorPos = _mirrorPos;
+            scaleOffset.transform.localPosition = Vector3.zero;
             if (useOcclusion)
             {
                 m_ReflectionCamera.cullingMatrix = m_CullingCamera.cullingMatrix;
