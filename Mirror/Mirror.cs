@@ -7,7 +7,6 @@ using UnityEngine;
 using UnityEngine.XR;
 using ABI_RC.Core.Savior;
 using System.Linq;
-using static Zettai.MirrorReflection;
 
 [assembly: MelonInfo(typeof(Zettai.Mirror), "Mirror", "1.0", "Zettai")]
 [assembly: MelonGame(null, null)]
@@ -19,10 +18,10 @@ namespace Zettai
         private static readonly MelonPreferences_Entry<bool> MirrorPref = category.CreateEntry("Mirror", true, "Mirror");
         private static readonly MelonPreferences_Entry<bool> MirrorVram = category.CreateEntry("MirrorVram", true, "Mirror VRAM saver");
         private static readonly MelonPreferences_Entry<Occlusion> MirrorOcclusion = category.CreateEntry("MirrorOcclusion", Occlusion.Default, "Mirror occlusion culling");
-        private static readonly MelonPreferences_Entry<CullDistance> MirrorCullDistanceType = category.CreateEntry("MirrorCullDistanceType", CullDistance.Off, "Mirror far cull distance type");
+        private static readonly MelonPreferences_Entry<MirrorReflection.CullDistance> MirrorCullDistanceType = category.CreateEntry("MirrorCullDistanceType", MirrorReflection.CullDistance.Off, "Mirror far cull distance type");
         private static readonly MelonPreferences_Entry<int> MirrorCullDistanceValue = category.CreateEntry("MirrorCullDistanceValue", 1000, "Mirror far cull distance [10 - 10000 m]");
         private static readonly MelonPreferences_Entry<bool> MirrorResOverride = category.CreateEntry("MirrorResOverride", true, "Mirror resolution unlimiter");
-        private static readonly MelonPreferences_Entry<int> MirrorResPercent = category.CreateEntry("MirrorResPercent", 100, "Mirror resolution [1-100%]");
+        private static readonly MelonPreferences_Entry<int> MirrorResPercent = category.CreateEntry("MirrorResPercent", 100, "Mirror resolution [1-150%]");
         private static readonly Dictionary<CVRMirror, MirrorReflection> mirrors = new Dictionary<CVRMirror, MirrorReflection>();
         
         public enum Occlusion 
@@ -85,7 +84,7 @@ namespace Zettai
                 }
                 cvrMirror.CleanupMirrorObjects();
                 var mirrorPercentValue = MirrorResPercent.Value;
-                var mirrorPercent = Mathf.Clamp(mirrorPercentValue, 1, 100);
+                var mirrorPercent = Mathf.Clamp(mirrorPercentValue, 1, 150);
                 if (mirrorPercent != mirrorPercentValue)
                 {
                     MirrorResPercent.Value = mirrorPercent;
@@ -185,7 +184,7 @@ namespace Zettai
         public ClearFlags clearFlags = ClearFlags.Default;
         public Color backgroundColor = Color.clear;
         [Range(0.01f, 1f)]
-        public float MaxTextureSizePercent = 1.0f;  
+        public float MaxTextureSizePercent = 100.0f;  
         public LayerMask m_ReflectLayers = -1;
         public bool useAverageNormals = false;
         public bool useFrustum = true;
@@ -603,7 +602,7 @@ namespace Zettai
 
         private static Vector2Int UpdateRenderResolution(int width, int height, float MaxTextureSizePercent, int resolutionLimit)
         {
-            var max = Mathf.Clamp(MaxTextureSizePercent, 1, 100) / 100f; 
+            var max = Mathf.Clamp(MaxTextureSizePercent, 1, 150) / 100f; 
             var size = width * height;
             var limit = resolutionLimit * resolutionLimit;
             double _maxRes = 0;
@@ -612,7 +611,7 @@ namespace Zettai
                 _maxRes = Math.Sqrt(limit / (float)size);
                 max *= (float)_maxRes;
             }
-            max = Mathf.Clamp(max, 0.001f, 1f);
+            max = Mathf.Clamp(max, 0.001f, 1.5f);
             int w = (int)(width * max + 0.5f);
             int h = (int)(height * max + 0.5f);
             return new Vector2Int(w, h);
