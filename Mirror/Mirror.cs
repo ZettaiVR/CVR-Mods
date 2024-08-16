@@ -6,6 +6,8 @@ using UnityEngine.Rendering;
 using UnityEngine;
 using UnityEngine.XR;
 using ABI_RC.Core.Savior;
+using System.Linq;
+using static Zettai.MirrorReflection;
 
 [assembly: MelonInfo(typeof(Zettai.Mirror), "Mirror", "1.0", "Zettai")]
 [assembly: MelonGame(null, null)]
@@ -17,10 +19,12 @@ namespace Zettai
         private static readonly MelonPreferences_Entry<bool> MirrorPref = category.CreateEntry("Mirror", true, "Mirror");
         private static readonly MelonPreferences_Entry<bool> MirrorVram = category.CreateEntry("MirrorVram", true, "Mirror VRAM saver");
         private static readonly MelonPreferences_Entry<Occlusion> MirrorOcclusion = category.CreateEntry("MirrorOcclusion", Occlusion.Default, "Mirror occlusion culling");
+        private static readonly MelonPreferences_Entry<CullDistance> MirrorCullDistanceType = category.CreateEntry("MirrorCullDistanceType", CullDistance.Off, "Mirror far cull distance type");
+        private static readonly MelonPreferences_Entry<int> MirrorCullDistanceValue = category.CreateEntry("MirrorCullDistanceValue", 1000, "Mirror far cull distance [10 - 10000 m]");
         private static readonly MelonPreferences_Entry<bool> MirrorResOverride = category.CreateEntry("MirrorResOverride", true, "Mirror resolution unlimiter");
         private static readonly MelonPreferences_Entry<int> MirrorResPercent = category.CreateEntry("MirrorResPercent", 100, "Mirror resolution [1-100%]");
         private static readonly Dictionary<CVRMirror, MirrorReflection> mirrors = new Dictionary<CVRMirror, MirrorReflection>();
-
+        
         public enum Occlusion 
         {
             Default,
@@ -28,13 +32,42 @@ namespace Zettai
             ForcedOnNotTransparent,
             ForcedOff
         }
+        public override void OnInitializeMelon()
+        {
+            MirrorCullDistanceValue.OnEntryValueChanged.Subscribe(MirrorCullDistanceValue_OnValueChanged);
+        }
+        private static void MirrorCullDistanceValue_OnValueChanged(int oldValue, int newValue)
+        {
+            if (oldValue == newValue || (newValue >= 10 && newValue <= 10000))
+                return;
+
+            if (newValue == 0)
+            {
+                MelonLogger.Msg($"Resetting mirror far cull distance value to {MirrorCullDistanceValue.DefaultValue}.");
+                MirrorCullDistanceValue.ResetToDefault();
+                return;
+            }
+            MelonLogger.Msg($"Clamping mirror far cull distance value to 10 - 10000. Original: {newValue}");
+            MirrorCullDistanceValue.Value = Mathf.Clamp(newValue, 10, 10000);
+        }
 
         public override void OnSceneWasLoaded(int buildIndex, string sceneName)
         {
             MetaPort.Instance.settings.settingIntChanged.RemoveListener(MirrorPatch.Settings);
             MetaPort.Instance.settings.settingIntChanged.AddListener(MirrorPatch.Settings);
+            ClearMirrorCache();
         }
-
+        private static void ClearMirrorCache() 
+        {
+            var _mirrors = mirrors.Keys.ToArray();
+            foreach (var m in _mirrors) 
+            {
+                if (!m) 
+                {
+                    mirrors.Remove(m);
+                }
+            }
+        }
         [HarmonyPatch(typeof(CVRMirror), nameof(CVRMirror.OnWillRenderObject))]
         class MirrorPatch
         {
@@ -66,6 +99,8 @@ namespace Zettai
                 mirror.backgroundColor = cvrMirror.m_CustomColor;
                 bool isTransparent = cvrMirror.m_CustomColor.a < 0.99f && cvrMirror.m_ClearFlags == CVRMirror.MirrorClearFlags.Color;
                 mirror.useOcclusionCulling = GetMirrorOcclusion(cvrMirror.m_UseOcclusionCulling, isTransparent);
+                mirror.cullDistance = MirrorCullDistanceType.Value;
+                mirror.maxCullDistance = MirrorCullDistanceValue.Value;
                 mirror.OnWillRenderObject();
 
                 return false;
@@ -93,7 +128,7 @@ namespace Zettai
                     maxRes = MetaPort.Instance.settings.GetSettingInt("GraphicsMaxMirrorResolution");
                 if (msaaChange)
                     msaa = MetaPort.Instance.settings.GetSettingInt("MirrorMsaaLevel");
-                MelonLogger.Msg($"resChange: {resChange} msaaChange: {msaaChange} maxRes: {maxRes}, msaa: {msaa} arg1: {arg1}");
+                //MelonLogger.Msg($"resChange: {resChange} msaaChange: {msaaChange} maxRes: {maxRes}, msaa: {msaa} arg1: {arg1}");
             }
         }
         [HarmonyPatch(typeof(CVRMirror), nameof(CVRMirror.OnDisable))]
@@ -152,9 +187,11 @@ namespace Zettai
         [Range(0.01f, 1f)]
         public float MaxTextureSizePercent = 1.0f;  
         public LayerMask m_ReflectLayers = -1;
-        public bool useAverageNormals = true;
+        public bool useAverageNormals = false;
         public bool useFrustum = true;
         public bool keepNearClip = true;
+        public CullDistance cullDistance = CullDistance.Off;
+        public float maxCullDistance = 1000f;
 
         private bool hasCorners;
         private int actualMsaa;
@@ -217,6 +254,13 @@ namespace Zettai
             Skybox = 1,
             Color = 2,
         }
+        public enum CullDistance
+        {
+            Off,
+            CameraFarClip,
+            DistanceFromMirror,
+        //    PerLayerDistancesFromMirror,  //not used in the mod
+        }
 
         public void Start()
         {
@@ -231,6 +275,8 @@ namespace Zettai
             {
                 clearPixel = new Texture2D(1, 1, TextureFormat.ARGB32, 0, true);
                 clearPixel.SetPixel(0, 0, Color.clear);
+                clearPixel.name = "A single transparent pixel";
+                clearPixel.Apply();
                 cullingTex = new RenderTexture(1, 1, 0, RenderTextureFormat.ARGB32);
                 cullingTex.Create();
             }
@@ -289,7 +335,7 @@ namespace Zettai
             // Make sure the mirror's material is unique
             m_MaterialsInstanced = m_Renderer.materials;
             
-            MelonLogger.Msg($"Mirror {gameObject.name} setup done.");
+           // MelonLogger.Msg($"Mirror {gameObject.name} setup done.");
         }
         internal static void SetGlobalIdIfNeeded()
         {
@@ -359,13 +405,13 @@ namespace Zettai
 
         private void ReadMesh(Mesh mesh, int index)
         {
+            mirrorNormal = mirrorNormalAvg = Vector3.up;
             Vector3 allNormals = Vector3.zero;
             if (mesh.subMeshCount > 1 && index >= 0 && index < mesh.subMeshCount)
             {
                 ints.Clear();
-                var subMesh = mesh.GetSubMesh(index);
                 mesh.GetIndices(indicies, index);
-                for (int i = subMesh.indexStart; i < subMesh.indexCount; i++)
+                for (int i = 0; i < indicies.Count; i++)
                 {
                     ints.Add(indicies[i]);
                 }
@@ -375,31 +421,35 @@ namespace Zettai
                     mirrorVertices.Add(vertices[item]);
                 }
                 vertices.Clear();
-                mesh.GetNormals(vertices);
-                if (vertices.Count > 0)
-                    mirrorNormal = vertices[0];
+                var normals = vertices;
+                mesh.GetNormals(normals);
+                if (normals.Count > 0)
+                    mirrorNormal = normals[0];
+
                 foreach (var item in ints)
                 {
-                    allNormals += vertices[item];
+                    allNormals += normals[item];
                 }
+
+                normals.Clear();
                 ints.Clear();
-                vertices.Clear();
             }
             else
             {
+                var normals = vertices;
                 mesh.GetVertices(mirrorVertices);
-                mesh.GetNormals(vertices);
-                foreach (var item in vertices)
+                mesh.GetNormals(normals);
+                foreach (var item in normals)
                 {
                     allNormals += item;
                 }
                 // Get the mirror mesh normal from the first vertex
-                if (vertices.Count > 0)
-                    mirrorNormal = vertices[0];
-                vertices.Clear();
+                if (normals.Count > 0)
+                    mirrorNormal = normals[0];
+                normals.Clear();
             }
 
-            mirrorNormalAvg = allNormals.normalized;
+            mirrorNormalAvg = mirrorNormal;
             if (float.IsNaN(mirrorNormalAvg.x) || float.IsInfinity(mirrorNormalAvg.x) || float.IsNaN(mirrorNormalAvg.y) ||
                 float.IsInfinity(mirrorNormalAvg.y) || float.IsNaN(mirrorNormalAvg.z) || float.IsInfinity(mirrorNormalAvg.z))
             {
@@ -565,8 +615,6 @@ namespace Zettai
             max = Mathf.Clamp(max, 0.001f, 1f);
             int w = (int)(width * max + 0.5f);
             int h = (int)(height * max + 0.5f);
-            //if (Time.frameCount % 1000 == 0)
-            //    MelonLogger.Msg($"max: {max}, w {w}, h {h}, width {width}, height {height}, size {size}, limit {limit}, maxRes {maxRes}, _maxRes {_maxRes}");
             return new Vector2Int(w, h);
         }
         internal static void SetupMsaaTexture(ref RenderTexture rt, bool useMsaaTexture, Vector3Int widthHeightMsaa, bool allowHDR)
@@ -620,7 +668,8 @@ namespace Zettai
             SetupMsaaTexture(ref m_ReflectionTextureMSAA, useMsaaTexture, widthHeightMsaa, currentCam.allowHDR);
 
             var reflectionTexture = isRightEye ? m_ReflectionTextureRight : m_ReflectionTextureLeft;
-            CreateMirrorObjects(transform, ref reflectionTexture, ref scaleOffset, ref m_CullingCamera, ref m_ReflectionCamera, currentCam.allowHDR, widthHeightMsaa, mirrorNormalAvg, useMsaaTexture);
+            var _mirrorNormal = useAverageNormals ? mirrorNormalAvg : mirrorNormal;
+            CreateMirrorObjects(transform, ref reflectionTexture, ref scaleOffset, ref m_CullingCamera, ref m_ReflectionCamera, currentCam.allowHDR, widthHeightMsaa, _mirrorNormal, useMsaaTexture);
             var cullingRotation = m_CullingCamera.transform.localRotation;
 
             if (isRightEye)
@@ -675,6 +724,23 @@ namespace Zettai
                 if (!keepNearClip)
                     m_ReflectionCamera.nearClipPlane = nearDistance;
             }
+
+            if (cullDistance != CullDistance.Off)
+            {
+                var layerCullDistances = m_ReflectionCamera.layerCullDistances;
+                switch (cullDistance)
+                {
+                    case CullDistance.CameraFarClip:
+                        Array.Fill(layerCullDistances, m_ReflectionCamera.farClipPlane);
+                        break;
+                    case CullDistance.DistanceFromMirror:
+                        Array.Fill(layerCullDistances, maxCullDistance + reflectedPos.magnitude + 1f);
+                        break;
+                }
+                m_ReflectionCamera.layerCullSpherical = true;
+                m_ReflectionCamera.layerCullDistances = layerCullDistances;
+            }
+
             // Setup oblique projection matrix so that near plane is our reflection plane.
             // This way we clip everything below/above it for free.
             var clipPlane = CameraSpacePlane(worldToCameraMatrix, Vector3.zero, normal, 1.0f);
@@ -775,6 +841,9 @@ namespace Zettai
                 RenderTexture.ReleaseTemporary(m_ReflectionTextureMSAA);
                 m_ReflectionTextureMSAA = null;
             }
+            materialPropertyBlock.SetTexture(LeftEyeTextureID, clearPixel);
+            materialPropertyBlock.SetTexture(RightEyeTextureID, clearPixel);
+            m_Renderer.SetPropertyBlock(materialPropertyBlock);
         }
         internal static void UpdateCameraModes(Camera src, Camera dest, Camera dest2, ClearFlags clearFlags, Color backgroundColor)
         {
