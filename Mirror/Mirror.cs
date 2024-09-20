@@ -535,6 +535,14 @@ namespace Zettai
             m_LocalToWorldMatrix = transform.localToWorldMatrix;
             Vector3 mirrorPos = m_LocalToWorldMatrix.GetColumn(3);  // transform.position
             Vector3 normal = m_LocalToWorldMatrix.MultiplyVector(useAverageNormals ? mirrorNormalAvg : mirrorNormal).normalized;    // transform.TransformDirection
+            
+            if (IsSheared(m_LocalToWorldMatrix, 0.01f))
+            {
+                var ltwm = m_Renderer.localToWorldMatrix * meshTrs;
+                var _worldCorners = meshCorners.MultiplyPoint3x4(ltwm);
+                var _plane = new Plane(_worldCorners[0], _worldCorners[1], _worldCorners[2]);
+                normal = _plane.normal;
+            }
 
             if (m_DisablePixelLights)
                 QualitySettings.pixelLightCount = 0;
@@ -576,6 +584,16 @@ namespace Zettai
                     { }
                 }
             }
+        }
+        private bool IsSheared(Matrix4x4 ltwm, float limit)
+        {
+            var fw = ltwm.MultiplyVector(Vector3.forward);
+            var up = ltwm.MultiplyVector(Vector3.up);
+            var right = ltwm.MultiplyVector(Vector3.right);
+            var a = Math.Abs(Vector3.Dot(fw, right));
+            var b = Math.Abs(Vector3.Dot(fw, up));
+            var c = Math.Abs(Vector3.Dot(up, right));
+            return a > limit || b > limit || c > limit;
         }
         /// <summary>
         /// Get actual MSAA level from render texture (if the current camera renders to one) or QualitySettings
