@@ -541,7 +541,9 @@ namespace Zettai
                 var ltwm = m_Renderer.localToWorldMatrix * meshTrs;
                 var _worldCorners = meshCorners.MultiplyPoint3x4(ltwm);
                 var _plane = new Plane(_worldCorners[0], _worldCorners[1], _worldCorners[2]);
-                normal = _plane.normal;
+                var _normal = _plane.normal;
+                _normal *= Mathf.Sign(Vector3.Dot(normal, _normal));
+                normal = _normal;
             }
 
             if (m_DisablePixelLights)
