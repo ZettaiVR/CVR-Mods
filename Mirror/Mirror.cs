@@ -525,7 +525,7 @@ namespace Zettai
             var currentCamLtwm = currentCam.transform.localToWorldMatrix;
 
             useMsaaTexture = useVRAMOptimization && currentCam.actualRenderingPath == RenderingPath.Forward && actualMsaa > 1 && copySupported;
-            
+
             // Set flag that we're rendering to a mirror
             s_InsideRendering = true;
 
@@ -534,17 +534,7 @@ namespace Zettai
 
             m_LocalToWorldMatrix = transform.localToWorldMatrix;
             Vector3 mirrorPos = m_LocalToWorldMatrix.GetColumn(3);  // transform.position
-            Vector3 normal = m_LocalToWorldMatrix.MultiplyVector(useAverageNormals ? mirrorNormalAvg : mirrorNormal).normalized;    // transform.TransformDirection
-            
-            if (IsSheared(m_LocalToWorldMatrix, 0.01f))
-            {
-                var ltwm = m_Renderer.localToWorldMatrix * meshTrs;
-                var _worldCorners = meshCorners.MultiplyPoint3x4(ltwm);
-                var _plane = new Plane(_worldCorners[0], _worldCorners[1], _worldCorners[2]);
-                var _normal = _plane.normal;
-                _normal *= Mathf.Sign(Vector3.Dot(normal, _normal));
-                normal = _normal;
-            }
+            Vector3 normal = GetMirrorNormal();
 
             if (m_DisablePixelLights)
                 QualitySettings.pixelLightCount = 0;
@@ -587,6 +577,24 @@ namespace Zettai
                 }
             }
         }
+
+        private Vector3 GetMirrorNormal()
+        {
+            var normal = m_LocalToWorldMatrix.MultiplyVector(useAverageNormals ? mirrorNormalAvg : mirrorNormal).normalized;    // transform.TransformDirection
+
+            if (IsSheared(m_LocalToWorldMatrix, 0.0002f))
+            {
+                var ltwm = m_Renderer.localToWorldMatrix * meshTrs;
+                var _worldCorners = meshCorners.MultiplyPoint3x4(ltwm);
+                var _plane = new Plane(_worldCorners[0], _worldCorners[1], _worldCorners[2]);
+                var _normal = _plane.normal;
+                _normal *= Mathf.Sign(Vector3.Dot(normal, _normal));
+                normal = _normal;
+            }
+
+            return normal;
+        }
+
         private bool IsSheared(Matrix4x4 ltwm, float limit)
         {
             var fw = ltwm.MultiplyVector(Vector3.forward);
@@ -926,12 +934,15 @@ namespace Zettai
             {
                 scaleOffset = new GameObject(MirrorScaleOffset).transform;
                 scaleOffset.SetParent(transform, true);
-                scaleOffset.localPosition = Vector3.zero;
-                scaleOffset.localRotation = Quaternion.identity;
+                scaleOffset.SetLocalPositionAndRotation(Vector3.zero, Quaternion.identity);
                 scaleOffset.gameObject.hideFlags = hideFlags;
             }
-            var scale = transform.localScale;
-            scaleOffset.localScale = new Vector3(1f / scale.x, 1f / scale.y, 1f / scale.z);
+            var scale = transform.lossyScale;
+            var newScale = new Vector3(1f / scale.x, 1f / scale.y, 1f / scale.z);
+            if (IsGood(newScale))
+            {
+                scaleOffset.localScale = newScale;
+            }
             if (!m_CullingCamera)
             {
                 GameObject _culling = new GameObject(CullingCameraName);
@@ -958,6 +969,10 @@ namespace Zettai
             m_ReflectionCamera.gameObject.AddComponent<FlareLayer>();
             m_ReflectionCamera.clearFlags = CameraClearFlags.Nothing;
             cameraGameObject.hideFlags = hideFlags;
+        }
+        private static bool IsGood(Vector3 v3)
+        {
+            return !float.IsNaN(v3.x) && !float.IsNaN(v3.y) && !float.IsNaN(v3.z) && !float.IsInfinity(v3.x) && !float.IsInfinity(v3.y) && !float.IsInfinity(v3.z);
         }
 
         public static bool Visible(in Vector3 viewPosition, in Vector3 objectPosition, in Vector3 objectNormal)
