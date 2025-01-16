@@ -18,6 +18,7 @@ namespace Zettai
         private static readonly MelonPreferences_Entry<bool> MirrorPref = category.CreateEntry("Mirror", true, "Mirror");
         private static readonly MelonPreferences_Entry<bool> MirrorVram = category.CreateEntry("MirrorVram", true, "Mirror VRAM saver");
         private static readonly MelonPreferences_Entry<Occlusion> MirrorOcclusion = category.CreateEntry("MirrorOcclusion", Occlusion.Default, "Mirror occlusion culling");
+        private static readonly MelonPreferences_Entry<Optimization> MirrorOptimization = category.CreateEntry("MirrorOptimization", Optimization.Frustum, "Mirror Optimization type");
         private static readonly MelonPreferences_Entry<MirrorReflection.CullDistance> MirrorCullDistanceType = category.CreateEntry("MirrorCullDistanceType", MirrorReflection.CullDistance.Off, "Mirror far cull distance type");
         private static readonly MelonPreferences_Entry<int> MirrorCullDistanceValue = category.CreateEntry("MirrorCullDistanceValue", 1000, "Mirror far cull distance [10 - 10000 m]");
         private static readonly MelonPreferences_Entry<bool> MirrorResOverride = category.CreateEntry("MirrorResOverride", true, "Mirror resolution unlimiter");
@@ -30,6 +31,13 @@ namespace Zettai
             ForcedOn,
             ForcedOnNotTransparent,
             ForcedOff
+        }
+        public enum Optimization
+        { 
+            None,
+            Frustum,
+            Depth,
+            Both,
         }
         public override void OnInitializeMelon()
         {
@@ -100,6 +108,9 @@ namespace Zettai
                 mirror.useOcclusionCulling = GetMirrorOcclusion(cvrMirror.m_UseOcclusionCulling, isTransparent);
                 mirror.cullDistance = MirrorCullDistanceType.Value;
                 mirror.maxCullDistance = MirrorCullDistanceValue.Value;
+                var opt = MirrorOptimization.Value;
+                mirror.useFrustum = opt == Optimization.Frustum || opt == Optimization.Both;
+                mirror.useMasking = opt == Optimization.Both || opt == Optimization.Depth;
                 mirror.OnWillRenderObject();
 
                 return false;
@@ -189,6 +200,7 @@ namespace Zettai
         public bool useAverageNormals = false;
         public bool useFrustum = true;
         public bool keepNearClip = true;
+        public bool useMasking = false;
         public CullDistance cullDistance = CullDistance.Off;
         public float maxCullDistance = 1000f;
 
@@ -215,6 +227,12 @@ namespace Zettai
         private Matrix4x4 m_LocalToWorldMatrix;
         private Matrix4x4 meshTrs;
         private Transform scaleOffset;
+
+
+        private CommandBuffer commandBufferClearRenderTargetToZero;
+        private CommandBuffer commandBufferClearRenderTargetToOne;
+        private CommandBuffer commandBufferSetRectFull;
+        private CommandBuffer commandBufferSetRectLimited;
 
         private readonly List<Material> m_savedSharedMaterials = new List<Material>();   // Only relevant for the editor
 
@@ -738,6 +756,7 @@ namespace Zettai
                 return;
             }
 
+            bool willUseFrustum = false;
             bool validRect = false;
 
             if (hasCorners && pixelRect.height >= 1 && pixelRect.width >= 1)
@@ -748,6 +767,7 @@ namespace Zettai
             {
                 m_ReflectionCamera.pixelRect = pixelRect;
                 m_ReflectionCamera.projectionMatrix = frustum;
+                willUseFrustum = true;
                 if (!keepNearClip)
                     m_ReflectionCamera.nearClipPlane = nearDistance;
             }
@@ -787,13 +807,95 @@ namespace Zettai
             m_ReflectionCamera.useOcclusionCulling = useOcclusion;
             m_ReflectionCamera.worldToCameraMatrix = GetViewMatrix(currentCam, mirrorPos, normal, eye, isStereo);
             SetGlobalShaderRect(m_ReflectionCamera.rect);
-            m_ReflectionCamera.Render();
+
+
+            var pixelWidth = targetTexture.width;
+            var pixelHeight = targetTexture.height;
+            var shouldUseMasking = ShouldUseMasking(pixelWidth, pixelHeight, pixelRect, useMasking, validRect);
+            if (shouldUseMasking)
+            {
+
+                RenderWithCommanBuffers(pixelWidth, pixelHeight, pixelRect, willUseFrustum, validRect);
+            }
+            else
+            {
+                m_ReflectionCamera.Render();
+            }
             ResetGlobalShaderRect();
 
             if (useMsaaTexture)
                 CopyTexture(reflectionTexture, pixelRect, validRect);
         }
+        private static bool ShouldUseMasking(int pixelWidth, int pixelHeight, Rect mirrorRect, bool useMasking, bool validRect)
+        {
+            if (!useMasking)
+                return false;
+            if (!validRect)
+                return true;
+            if ((mirrorRect.width / pixelWidth) > 0.95f && (mirrorRect.height / pixelHeight) > 0.95f)
+                return false;
+            return true;
+        }
 
+        private void RenderWithCommanBuffers(int pixelWidth, int pixelHeight, Rect pixelRect, bool willUseFrustum, bool validRect)
+        {
+            var cameraEvent = CameraEvent.BeforeForwardOpaque;
+            CreateCommandBuffers(pixelWidth, pixelHeight, pixelRect);
+            AddBuffers(cameraEvent, willUseFrustum, validRect);
+            m_ReflectionCamera.Render();
+            RemoveBuffers(cameraEvent);
+        }
+
+        private void AddBuffers(CameraEvent cameraEvent, bool willUseFrustum, bool validRect)
+        {
+            m_ReflectionCamera.AddCommandBuffer(cameraEvent, commandBufferSetRectFull);
+            m_ReflectionCamera.AddCommandBuffer(cameraEvent, commandBufferClearRenderTargetToZero);
+
+            if (validRect)
+            {
+                m_ReflectionCamera.AddCommandBuffer(cameraEvent, commandBufferSetRectLimited);
+                m_ReflectionCamera.AddCommandBuffer(cameraEvent, commandBufferClearRenderTargetToOne);
+                m_ReflectionCamera.AddCommandBuffer(cameraEvent, commandBufferSetRectFull);
+            }
+
+            if (willUseFrustum)
+                m_ReflectionCamera.AddCommandBuffer(cameraEvent, commandBufferSetRectLimited);
+        }
+        private void RemoveBuffers(CameraEvent cameraEvent)
+        {
+            m_ReflectionCamera.RemoveCommandBuffer(cameraEvent, commandBufferClearRenderTargetToZero);
+            m_ReflectionCamera.RemoveCommandBuffer(cameraEvent, commandBufferSetRectFull);
+            m_ReflectionCamera.RemoveCommandBuffer(cameraEvent, commandBufferSetRectLimited);
+            m_ReflectionCamera.RemoveCommandBuffer(cameraEvent, commandBufferClearRenderTargetToOne);
+        }
+        private void CreateCommandBuffers(int pixelWidth, int pixelHeight, Rect pixelRectLimited)
+        {
+            var zeroCreated = CreateCommandBuffer(ref commandBufferClearRenderTargetToZero, "Occlusion buffer - ClearRenderTarget 0", clear: false);
+            var oneCreate = CreateCommandBuffer(ref commandBufferClearRenderTargetToOne, "Occlusion buffer - ClearRenderTarget 1", clear: false);
+            CreateCommandBuffer(ref commandBufferSetRectFull, "Occlusion buffer - SetRect full", clear: true);
+            CreateCommandBuffer(ref commandBufferSetRectLimited, "Occlusion buffer - SetRect limited", clear: true);
+
+            if (zeroCreated)
+                commandBufferClearRenderTargetToZero.ClearRenderTarget(clearDepth: true, clearColor: false, backgroundColor: Color.blue, depth: 0);
+            if (oneCreate)
+                commandBufferClearRenderTargetToOne.ClearRenderTarget(clearDepth: true, clearColor: false, backgroundColor: Color.blue, depth: 1);
+
+            commandBufferSetRectFull.SetViewport(new Rect(0, 0, pixelWidth, pixelHeight));
+            commandBufferSetRectLimited.SetViewport(pixelRectLimited);
+        }
+        private bool CreateCommandBuffer(ref CommandBuffer _commandBuffer, string name, bool clear)
+        {
+            if (_commandBuffer == null)
+            {
+                _commandBuffer = new CommandBuffer { name = name };
+                return true;
+            }
+            else if (clear)
+            {
+                _commandBuffer.Clear();
+            }
+            return false;
+        }
         internal static void SetGlobalShaderRect(Rect rect)
         {
             var value = new Vector4(rect.x, rect.y, 1f - rect.width, 1f - rect.height);
