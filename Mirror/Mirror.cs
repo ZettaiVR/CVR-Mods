@@ -42,6 +42,8 @@ namespace Zettai
         public override void OnInitializeMelon()
         {
             MirrorCullDistanceValue.OnEntryValueChanged.Subscribe(MirrorCullDistanceValue_OnValueChanged);
+            if (MirrorOptimization.Value == Optimization.None)
+                MirrorOptimization.Value = Optimization.Frustum;
         }
         private static void MirrorCullDistanceValue_OnValueChanged(int oldValue, int newValue)
         {
